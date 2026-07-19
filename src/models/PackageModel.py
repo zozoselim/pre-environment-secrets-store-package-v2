@@ -1,5 +1,6 @@
+import json
 import re
-from typing import Dict, List, Literal, Union
+from typing import Dict, Literal, Union
 
 from pydantic import Field, field_validator
 
@@ -22,15 +23,15 @@ class EmptyInputs(Inputs):
 
 
 class VariablesStoringSecrets(Config):
-    """Names of the environment variables containing secret values."""
+    """JSON list containing environment variable names."""
 
     name: Literal[
         "variables_storing_secrets"
     ] = "variables_storing_secrets"
 
-    value: List[str] = Field(min_length=1)
+    value: str = Field(min_length=2)
 
-    type: Literal["list"] = "list"
+    type: Literal["string"] = "string"
     field: Literal["textInput"] = "textInput"
 
     placeHolder: Literal[
@@ -39,11 +40,25 @@ class VariablesStoringSecrets(Config):
 
     @field_validator("value")
     @classmethod
-    def validate_variable_names(
-        cls,
-        variable_names: List[str],
-    ) -> List[str]:
-        cleaned_names: List[str] = []
+    def validate_variable_names(cls, value: str) -> str:
+        try:
+            variable_names = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                "Value must be a valid JSON list."
+            ) from error
+
+        if not isinstance(variable_names, list):
+            raise ValueError(
+                "Value must be a JSON list."
+            )
+
+        if not variable_names:
+            raise ValueError(
+                "At least one environment variable name is required."
+            )
+
+        cleaned_names = []
         seen_names = set()
 
         for variable_name in variable_names:
@@ -53,11 +68,6 @@ class VariablesStoringSecrets(Config):
                 )
 
             cleaned_name = variable_name.strip()
-
-            if not cleaned_name:
-                raise ValueError(
-                    "Environment variable names cannot be empty."
-                )
 
             if not re.fullmatch(
                 r"[A-Za-z_][A-Za-z0-9_]*",
@@ -77,10 +87,7 @@ class VariablesStoringSecrets(Config):
             seen_names.add(cleaned_name)
             cleaned_names.append(cleaned_name)
 
-        return cleaned_names
-
-    class Config:
-        title = "Variables Storing Secrets"
+        return json.dumps(cleaned_names)
 
 
 class SecretsOutput(Output):
@@ -103,10 +110,7 @@ class PackageOutputs(Outputs):
 
 
 class PackageRequest(Request):
-    inputs: EmptyInputs = Field(
-        default_factory=EmptyInputs
-    )
-
+    inputs: EmptyInputs = Field(default_factory=EmptyInputs)
     configs: EnvironmentSecretsStoreConfigs
 
     class Config:
@@ -143,14 +147,11 @@ class EnvironmentSecretsStoreExecutor(Config):
 
 
 class ConfigExecutor(Config):
-    name: Literal[
-        "ConfigExecutor"
-    ] = "ConfigExecutor"
+    name: Literal["ConfigExecutor"] = "ConfigExecutor"
 
     value: EnvironmentSecretsStoreExecutor
 
     type: Literal["executor"] = "executor"
-
     field: Literal[
         "dependentDropdownlist"
     ] = "dependentDropdownlist"
@@ -169,7 +170,6 @@ class PackageConfigs(Configs):
 
 class PackageModel(Package):
     configs: PackageConfigs
-
     type: Literal["component"] = "component"
 
     name: Literal[

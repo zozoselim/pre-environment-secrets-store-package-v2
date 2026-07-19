@@ -1,5 +1,6 @@
 """Runtime executor for the Environment Secrets Store component."""
 
+import json
 import os
 import sys
 from typing import Dict, List
@@ -29,14 +30,13 @@ class EnvironmentSecretsStore(Component):
 
         self.request.model = PackageModel(**self.request.data)
 
-        variable_names = self.request.get_param(
+        raw_variable_names = self.request.get_param(
             "variables_storing_secrets"
         )
 
-        self.variable_names: List[str] = [
-            variable_name.strip()
-            for variable_name in (variable_names or [])
-        ]
+        self.variable_names = self.parse_variable_names(
+            raw_variable_names
+        )
 
         self.secrets: Dict[str, str] = {}
 
@@ -44,9 +44,38 @@ class EnvironmentSecretsStore(Component):
     def bootstrap(config: dict = None) -> dict:
         return {}
 
-    def read_secrets(self) -> Dict[str, str]:
-        """Read secrets without logging or exposing their values."""
+    @staticmethod
+    def parse_variable_names(
+        raw_variable_names,
+    ) -> List[str]:
+        if isinstance(raw_variable_names, list):
+            variable_names = raw_variable_names
+        elif isinstance(raw_variable_names, str):
+            try:
+                variable_names = json.loads(raw_variable_names)
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    "variables_storing_secrets must be "
+                    "a valid JSON list."
+                ) from error
+        else:
+            raise ValueError(
+                "variables_storing_secrets must be "
+                "a JSON list."
+            )
 
+        if not isinstance(variable_names, list):
+            raise ValueError(
+                "variables_storing_secrets must be "
+                "a JSON list."
+            )
+
+        return [
+            variable_name.strip()
+            for variable_name in variable_names
+        ]
+
+    def read_secrets(self) -> Dict[str, str]:
         if not self.variable_names:
             raise ValueError(
                 "At least one environment variable name is required."
@@ -60,25 +89,22 @@ class EnvironmentSecretsStore(Component):
                 missing_variables.append(variable_name)
                 continue
 
-            output_name = variable_name.lower()
-            secrets[output_name] = os.environ[variable_name]
+            secrets[variable_name.lower()] = os.environ[
+                variable_name
+            ]
 
         if missing_variables:
-            missing_names = ", ".join(missing_variables)
-
             raise RuntimeError(
                 "Required environment variables were not found: "
-                f"{missing_names}"
+                + ", ".join(missing_variables)
             )
 
         return secrets
 
     def run(self):
-        """Retrieve secrets and build the component response."""
-
         self.secrets = self.read_secrets()
-
         return build_response(context=self)
+
 
 if __name__ == "__main__":
     from sdks.novavision.src.helper.executor import Executor
