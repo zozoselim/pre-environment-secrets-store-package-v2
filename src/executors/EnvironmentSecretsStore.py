@@ -50,14 +50,18 @@ class EnvironmentSecretsStore(Component):
     ) -> List[str]:
         if isinstance(raw_variable_names, list):
             variable_names = raw_variable_names
+
         elif isinstance(raw_variable_names, str):
             try:
-                variable_names = json.loads(raw_variable_names)
+                variable_names = json.loads(
+                    raw_variable_names
+                )
             except json.JSONDecodeError as error:
                 raise ValueError(
                     "variables_storing_secrets must be "
                     "a valid JSON list."
                 ) from error
+
         else:
             raise ValueError(
                 "variables_storing_secrets must be "
@@ -70,10 +74,24 @@ class EnvironmentSecretsStore(Component):
                 "a JSON list."
             )
 
-        return [
-            variable_name.strip()
-            for variable_name in variable_names
-        ]
+        cleaned_names: List[str] = []
+
+        for variable_name in variable_names:
+            if not isinstance(variable_name, str):
+                raise ValueError(
+                    "Environment variable names must be strings."
+                )
+
+            cleaned_name = variable_name.strip()
+
+            if not cleaned_name:
+                raise ValueError(
+                    "Environment variable names cannot be empty."
+                )
+
+            cleaned_names.append(cleaned_name)
+
+        return cleaned_names
 
     def read_secrets(self) -> Dict[str, str]:
         if not self.variable_names:
@@ -103,7 +121,10 @@ class EnvironmentSecretsStore(Component):
 
     def run(self):
         self.secrets = self.read_secrets()
-        return build_response(context=self)
+
+        return build_response(
+            context=self
+        )
 
 
 if __name__ == "__main__":

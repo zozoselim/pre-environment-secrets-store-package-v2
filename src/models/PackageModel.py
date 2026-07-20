@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Dict, Literal, Union
+from typing import Literal, Union
 
 from pydantic import Field, field_validator
 
@@ -91,11 +91,13 @@ class VariablesStoringSecrets(Config):
 
 
 class SecretsOutput(Output):
-    """Requested secrets mapped by environment variable name."""
+    """Requested secrets encoded as a JSON string."""
 
     name: Literal["secrets"] = "secrets"
-    value: Dict[str, str]
-    type: Literal["object"] = "object"
+
+    value: str
+
+    type: Literal["string"] = "string"
 
     class Config:
         title = "Secrets"
@@ -170,6 +172,7 @@ class PackageConfigs(Configs):
 
 class PackageModel(Package):
     configs: PackageConfigs
+
     type: Literal["component"] = "component"
 
     name: Literal[
