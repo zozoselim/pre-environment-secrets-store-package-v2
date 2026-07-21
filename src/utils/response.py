@@ -1,7 +1,5 @@
 """Response builder for the Environment Secrets Store component."""
 
-import json
-
 from sdks.novavision.src.helper.package import PackageHelper
 
 from components.EnvironmentSecretsStore.src.models.PackageModel import (
@@ -16,15 +14,10 @@ from components.EnvironmentSecretsStore.src.models.PackageModel import (
 
 
 def build_response(context):
-    """Build the NovaVision response containing retrieved secrets."""
-
-    secrets_json = json.dumps(
-        context.secrets,
-        ensure_ascii=False,
-    )
+    """Build a response containing requested secrets as an object output."""
 
     secrets_output = SecretsOutput(
-        value=secrets_json,
+        value=context.secrets,
     )
 
     package_outputs = PackageOutputs(

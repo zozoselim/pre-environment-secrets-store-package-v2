@@ -3,7 +3,10 @@
 import json
 import os
 import sys
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, Iterable, List
+
+from dotenv import load_dotenv
 
 sys.path.append(
     os.path.join(
@@ -23,21 +26,23 @@ from components.EnvironmentSecretsStore.src.utils.response import (
 
 
 class EnvironmentSecretsStore(Component):
-    """Reads configured secrets from environment variables."""
+    """Read explicitly requested secrets from the runtime environment."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
+
+        # NovaVision normally injects environment variables into the container.
+        # Loading mounted dotenv files as a fallback also supports local tests.
+        self.load_runtime_environment()
 
         self.request.model = PackageModel(**self.request.data)
 
         raw_variable_names = self.request.get_param(
             "variables_storing_secrets"
         )
-
         self.variable_names = self.parse_variable_names(
             raw_variable_names
         )
-
         self.secrets: Dict[str, str] = {}
 
     @staticmethod
@@ -45,36 +50,66 @@ class EnvironmentSecretsStore(Component):
         return {}
 
     @staticmethod
-    def parse_variable_names(
-        raw_variable_names,
-    ) -> List[str]:
+    def candidate_dotenv_paths() -> Iterable[Path]:
+        """Return supported dotenv locations without exposing their contents."""
+
+        custom_path = os.getenv(
+            "ENVIRONMENT_SECRETS_STORE_DOTENV_PATH"
+        )
+        if custom_path:
+            yield Path(custom_path)
+
+        # Paths used by the NovaVision runtime/SDK.
+        yield Path("/opt/app/.env")
+        yield Path("/opt/novavision/.env")
+
+        # Local development fallbacks.
+        yield Path.cwd() / ".env"
+        yield Path(__file__).resolve().parents[2] / ".env"
+
+    @classmethod
+    def load_runtime_environment(cls) -> None:
+        """Load available dotenv files while preserving injected variables."""
+
+        loaded_paths = set()
+        for dotenv_path in cls.candidate_dotenv_paths():
+            resolved_path = dotenv_path.expanduser()
+            path_key = str(resolved_path)
+
+            if path_key in loaded_paths or not resolved_path.is_file():
+                continue
+
+            load_dotenv(
+                dotenv_path=resolved_path,
+                override=False,
+            )
+            loaded_paths.add(path_key)
+
+    @staticmethod
+    def parse_variable_names(raw_variable_names) -> List[str]:
+        """Parse the UI value into a validated list of variable names."""
+
         if isinstance(raw_variable_names, list):
             variable_names = raw_variable_names
-
         elif isinstance(raw_variable_names, str):
             try:
-                variable_names = json.loads(
-                    raw_variable_names
-                )
+                variable_names = json.loads(raw_variable_names)
             except json.JSONDecodeError as error:
                 raise ValueError(
-                    "variables_storing_secrets must be "
-                    "a valid JSON list."
+                    "variables_storing_secrets must be a valid JSON list."
                 ) from error
-
         else:
             raise ValueError(
-                "variables_storing_secrets must be "
-                "a JSON list."
+                "variables_storing_secrets must be a JSON list."
             )
 
-        if not isinstance(variable_names, list):
+        if not isinstance(variable_names, list) or not variable_names:
             raise ValueError(
-                "variables_storing_secrets must be "
-                "a JSON list."
+                "variables_storing_secrets must contain at least one name."
             )
 
         cleaned_names: List[str] = []
+        seen_output_names = set()
 
         for variable_name in variable_names:
             if not isinstance(variable_name, str):
@@ -83,33 +118,37 @@ class EnvironmentSecretsStore(Component):
                 )
 
             cleaned_name = variable_name.strip()
-
             if not cleaned_name:
                 raise ValueError(
                     "Environment variable names cannot be empty."
                 )
 
+            output_name = cleaned_name.lower()
+            if output_name in seen_output_names:
+                raise ValueError(
+                    "Environment variable names must be unique after "
+                    "lowercasing."
+                )
+
+            seen_output_names.add(output_name)
             cleaned_names.append(cleaned_name)
 
         return cleaned_names
 
     def read_secrets(self) -> Dict[str, str]:
-        if not self.variable_names:
-            raise ValueError(
-                "At least one environment variable name is required."
-            )
+        """Read requested variables without logging or hardcoding values."""
 
         secrets: Dict[str, str] = {}
         missing_variables: List[str] = []
 
         for variable_name in self.variable_names:
-            if variable_name not in os.environ:
+            variable_value = os.getenv(variable_name)
+
+            if variable_value is None:
                 missing_variables.append(variable_name)
                 continue
 
-            secrets[variable_name.lower()] = os.environ[
-                variable_name
-            ]
+            secrets[variable_name.lower()] = variable_value
 
         if missing_variables:
             raise RuntimeError(
@@ -121,10 +160,7 @@ class EnvironmentSecretsStore(Component):
 
     def run(self):
         self.secrets = self.read_secrets()
-
-        return build_response(
-            context=self
-        )
+        return build_response(context=self)
 
 
 if __name__ == "__main__":
