@@ -158,9 +158,13 @@ class EnvironmentSecretsStore(Component):
 
         return secrets
 
-    def run(self):
-        self.secrets = self.read_secrets()
-        return build_response(context=self)
+        def run(self):
+            # The application .env file may be generated or updated after the
+            # package worker starts, so reload it before every execution.
+            self.load_runtime_environment()
+
+            self.secrets = self.read_secrets()
+            return build_response(context=self)
 
 
 if __name__ == "__main__":
