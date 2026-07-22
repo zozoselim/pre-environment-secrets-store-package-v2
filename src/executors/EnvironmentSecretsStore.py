@@ -17,12 +17,18 @@ sys.path.append(
 
 from sdks.novavision.src.base.component import Component
 
-from components.EnvironmentSecretsStore.src.models.PackageModel import (
-    PackageModel,
-)
-from components.EnvironmentSecretsStore.src.utils.response import (
-    build_response,
-)
+if __package__:
+    # Clean install veya Python package olarak import edildiğinde.
+    from ..models.PackageModel import PackageModel
+    from ..utils.response import build_response
+else:
+    # NovaVision executor dosyayı doğrudan çalıştırdığında.
+    from components.EnvironmentSecretsStore.src.models.PackageModel import (
+        PackageModel,
+    )
+    from components.EnvironmentSecretsStore.src.utils.response import (
+        build_response,
+    )
 
 
 class EnvironmentSecretsStore(Component):
@@ -159,6 +165,9 @@ class EnvironmentSecretsStore(Component):
         return secrets
 
     def run(self):
+        # NovaVision may create or update /opt/app/.env after the worker starts.
+        # Reload supported dotenv files before every flow execution.
+        self.load_runtime_environment()
         self.secrets = self.read_secrets()
         return build_response(context=self)
 

@@ -16,14 +16,13 @@ setuptools.setup(
     ),
     license="MIT",
     install_requires=[
-        "sdk",
         "python-dotenv>=1.0,<2.0",
         "requests>=2.31,<3.0",
     ],
     extras_require={
         "dev": [
             "pytest>=8,<9",
-        ]
+        ],
     },
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -40,4 +39,6 @@ setuptools.setup(
         "novavision.package": "src",
     },
     python_requires=">=3.8",
+    include_package_data=True,
+    zip_safe=False,
 )

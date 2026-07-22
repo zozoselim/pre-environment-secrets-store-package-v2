@@ -2,15 +2,28 @@
 
 from sdks.novavision.src.helper.package import PackageHelper
 
-from components.EnvironmentSecretsStore.src.models.PackageModel import (
-    ConfigExecutor,
-    EnvironmentSecretsStoreExecutor,
-    PackageConfigs,
-    PackageModel,
-    PackageOutputs,
-    PackageResponse,
-    SecretsOutput,
-)
+if __package__:
+    # Clean install veya package import sırasında.
+    from ..models.PackageModel import (
+        ConfigExecutor,
+        EnvironmentSecretsStoreExecutor,
+        PackageConfigs,
+        PackageModel,
+        PackageOutputs,
+        PackageResponse,
+        SecretsOutput,
+    )
+else:
+    # NovaVision dosyayı doğrudan runtime içinde çalıştırdığında.
+    from components.EnvironmentSecretsStore.src.models.PackageModel import (
+        ConfigExecutor,
+        EnvironmentSecretsStoreExecutor,
+        PackageConfigs,
+        PackageModel,
+        PackageOutputs,
+        PackageResponse,
+        SecretsOutput,
+    )
 
 
 def build_response(context):
