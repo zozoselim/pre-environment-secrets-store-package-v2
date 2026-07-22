@@ -19,6 +19,7 @@ sys.path.append(
 from sdks.novavision.src.base.component import Component
 
 from components.EnvironmentSecretsStore.src.models.PackageModel import (
+    DECLARED_SECRET_NAMES,
     PackageModel,
 )
 from components.EnvironmentSecretsStore.src.utils.response import (
@@ -43,6 +44,7 @@ class EnvironmentSecretsStore(Component):
         self.variable_names = self.parse_variable_names(
             raw_variable_names
         )
+        self.validate_declared_outputs(self.variable_names)
         self.secrets: Dict[str, str] = {}
 
     @staticmethod
@@ -51,7 +53,7 @@ class EnvironmentSecretsStore(Component):
 
     @staticmethod
     def candidate_dotenv_paths() -> Iterable[Path]:
-        """Return supported dotenv locations without exposing contents."""
+        """Return supported dotenv locations without exposing their contents."""
 
         custom_path = os.getenv(
             "ENVIRONMENT_SECRETS_STORE_DOTENV_PATH"
@@ -59,17 +61,14 @@ class EnvironmentSecretsStore(Component):
         if custom_path:
             yield Path(custom_path)
 
-        # NovaVision application/runtime locations.
         yield Path("/opt/app/.env")
         yield Path("/opt/novavision/.env")
-
-        # Local development fallbacks.
         yield Path.cwd() / ".env"
         yield Path(__file__).resolve().parents[2] / ".env"
 
     @classmethod
     def load_runtime_environment(cls) -> None:
-        """Load mounted dotenv files while preserving injected variables."""
+        """Load available dotenv files without logging any values."""
 
         loaded_paths = set()
         for dotenv_path in cls.candidate_dotenv_paths():
@@ -87,7 +86,7 @@ class EnvironmentSecretsStore(Component):
 
     @staticmethod
     def parse_variable_names(raw_variable_names) -> List[str]:
-        """Parse the UI value into a validated list of variable names."""
+        """Parse and validate the configured JSON list."""
 
         if isinstance(raw_variable_names, list):
             variable_names = raw_variable_names
@@ -121,21 +120,19 @@ class EnvironmentSecretsStore(Component):
             cleaned_name = variable_name.strip()
             if not _ENV_NAME_PATTERN.fullmatch(cleaned_name):
                 raise ValueError(
-                    "Invalid environment variable name: "
-                    f"{cleaned_name!r}."
+                    f"Invalid environment variable name: {cleaned_name!r}."
                 )
 
             if cleaned_name in seen_names:
                 raise ValueError(
-                    "Duplicate environment variable name: "
-                    f"{cleaned_name}."
+                    f"Duplicate environment variable name: {cleaned_name}."
                 )
 
             output_name = cleaned_name.lower()
             if output_name in seen_output_names:
                 raise ValueError(
-                    "Environment variable names must be unique after "
-                    "lowercasing."
+                    "Environment variable names must remain unique after "
+                    f"lowercasing: {cleaned_name}."
                 )
 
             seen_names.add(cleaned_name)
@@ -143,6 +140,18 @@ class EnvironmentSecretsStore(Component):
             cleaned_names.append(cleaned_name)
 
         return cleaned_names
+
+    @staticmethod
+    def validate_declared_outputs(variable_names: List[str]) -> None:
+        """Prevent runtime config from drifting from visual output ports."""
+
+        if variable_names != DECLARED_SECRET_NAMES:
+            raise ValueError(
+                "Configured secret names do not match the generated output "
+                f"schema: {DECLARED_SECRET_NAMES}. Update "
+                "resources/secret_outputs.json, export the package schema "
+                "again, and redeploy."
+            )
 
     def read_secrets(self) -> Dict[str, str]:
         """Read requested variables without logging or hardcoding values."""
@@ -168,16 +177,11 @@ class EnvironmentSecretsStore(Component):
         return secrets
 
     def run(self):
-        """Reload the application environment and create separate outputs."""
+        """Reload dotenv files and return one explicit output per secret."""
 
-        # NovaVision may generate/update /opt/app/.env after the worker starts.
         self.load_runtime_environment()
         self.secrets = self.read_secrets()
-
-        return build_response(
-            context=self,
-            secrets=self.secrets,
-        )
+        return build_response(context=self, secrets=self.secrets)
 
 
 if __name__ == "__main__":

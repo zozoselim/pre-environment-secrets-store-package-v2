@@ -10,60 +10,52 @@ The `variables_storing_secrets` configuration accepts a JSON list:
 ["MY_SECRET_A", "MY_SECRET_B"]
 ```
 
-The component reads those variables at runtime and creates one separately named string output for each requested secret:
+The component reads those names from the runtime environment and produces one object output named `secrets`:
 
-```text
-my_secret_a -> "value-a"
-my_secret_b -> "value-b"
+```json
+{
+  "my_secret_a": "value-a",
+  "my_secret_b": "value-b"
+}
 ```
 
-Output names are the lowercase forms of the environment variable names. Missing variables cause an error containing variable names only, never secret values.
+Output keys are lowercase. Missing variables cause an error that contains variable names only, never secret values.
 
 ## NovaVision environment loading
 
-The executor reads already injected process environment variables and also loads mounted dotenv files from these locations when available:
+NovaVision normally injects environment variables into the container. The executor also loads mounted dotenv files from these locations when available:
 
 - `/opt/app/.env`
 - `/opt/novavision/.env`
 - local `.env` for development
 - the optional path in `ENVIRONMENT_SECRETS_STORE_DOTENV_PATH`
 
-The dotenv files are reloaded before every execution because NovaVision may generate or update `/opt/app/.env` after the package worker starts.
+Already injected environment variables take precedence because dotenv loading uses `override=False`.
 
 ## Package image
 
-Use an existing NovaVision image that contains the NovaVision SDK, Python, and `python-dotenv`. The existing **Open CV** image can provide this runtime; this component does not use OpenCV image-processing functions.
+Use the existing NovaVision **Open CV** image. A separate custom image is not required for this package.
 
 ## Security
 
 - Never commit `.env` files or real credentials.
 - Never log or print output values.
-- Error messages contain missing variable names only.
-- Connect secret outputs only to trusted downstream components.
+- Test with a fake variable such as `ENV_SECRET_TEST`.
+- Connect the `secrets` output only to trusted downstream components.
 
-## Example
+## Local schema export
 
-Application `.env`:
+Run from the image/runtime repository where the package is mounted under `components/EnvironmentSecretsStore`:
 
-```env
-OPENAI_API_KEY=example-only
-DATABASE_PASSWORD=example-only
+```powershell
+python apps/export.py
 ```
 
-Component configuration:
-
-```json
-["OPENAI_API_KEY", "DATABASE_PASSWORD"]
-```
-
-Runtime outputs:
-
-```text
-openai_api_key
-database_password
-```
+This creates `data.json`.
 
 ## Local client test
+
+Start the NovaVision service, then set a fake value:
 
 ```powershell
 $env:ENV_SECRET_TEST = "novavision-test-123"
@@ -71,7 +63,7 @@ $env:ENV_SECRET_NAMES = '["ENV_SECRET_TEST"]'
 python apps/client.py
 ```
 
-The client masks all output values before printing the response.
+The client masks secret values before printing the response.
 
 ## Clean install test
 
@@ -83,6 +75,48 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-## NovaVision dynamic-output note
+## Workflow usage
 
-The response model permits dynamic output keys using `PackageOutputs.Config.extra = "allow"`. The runtime response therefore contains one output object per requested secret. Whether NovaVision's visual editor creates new connection ports immediately from runtime-added keys depends on the platform's dynamic-port support. The package code itself no longer wraps the values inside a single `secrets` object.
+1. Add the Environment Secrets Store package.
+2. Keep the package linked to the Open CV image.
+3. Set `variables_storing_secrets`, for example:
+
+   ```json
+   ["ENV_SECRET_TEST"]
+   ```
+
+4. Deploy locally.
+5. Connect the `secrets` object output to a trusted component that accepts object input.
+
+## NovaVision compatibility note
+
+Roboflow dynamically creates one visual output port per requested variable. NovaVision package schemas are static, so this implementation exposes a single object output whose lowercase keys correspond to the requested variables. Exact runtime-created visual ports require NovaVision platform support.
+
+## NovaVision visual output ports
+
+NovaVision draws component ports from the exported package schema before the
+executor runs. Runtime-only Pydantic extra fields therefore do not create
+visible arrows in the editor.
+
+This package generates explicit output fields from:
+
+```text
+resources/secret_outputs.json
+```
+
+Default:
+
+```json
+["ENV_SECRET_TEST"]
+```
+
+This produces the visual string output:
+
+```text
+env_secret_test
+```
+
+To change the output list, edit `resources/secret_outputs.json`, keep the
+`variables_storing_secrets` UI value identical, export/install the package
+again, and redeploy the application. Secret values may change in `.env`
+without changing this schema; only secret names require schema regeneration.

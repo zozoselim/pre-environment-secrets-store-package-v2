@@ -1,6 +1,5 @@
 """Safe local HTTP client for the Environment Secrets Store component."""
 
-import copy
 import json
 import os
 from typing import Any, Dict
@@ -53,25 +52,24 @@ def build_request() -> Dict[str, Any]:
 
 
 def masked_response(response_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Mask every dynamic output value before printing the response."""
-
-    result = copy.deepcopy(response_data)
+    """Mask secret values before printing the server response."""
 
     try:
-        outputs = result[
+        secrets = response_data[
             "configs"
-        ]["executor"]["value"]["value"]["outputs"]
+        ]["executor"]["value"]["value"]["outputs"]["secrets"]["value"]
+        response_data = dict(response_data)
+        masked = {
+            key: "***REDACTED***"
+            for key in secrets
+        }
+        response_data["configs"]["executor"]["value"]["value"][
+            "outputs"
+        ]["secrets"]["value"] = masked
     except (KeyError, TypeError):
-        return result
+        pass
 
-    if not isinstance(outputs, dict):
-        return result
-
-    for output in outputs.values():
-        if isinstance(output, dict) and "value" in output:
-            output["value"] = "***REDACTED***"
-
-    return result
+    return response_data
 
 
 def main() -> None:
