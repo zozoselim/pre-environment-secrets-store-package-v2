@@ -1,7 +1,8 @@
 import importlib.util
+import json
 from pathlib import Path
 
-import requests
+import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -16,23 +17,40 @@ client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
 
 
-class FakeResponse:
+class FakePubSub:
+    def __init__(self, messages):
+        self.messages = list(messages)
+        self.closed = False
+
+    def get_message(self, **kwargs):
+        if self.messages:
+            return self.messages.pop(0)
+
+        return None
+
+    def close(self):
+        self.closed = True
+
+
+class FakeRuntimeClient:
     def __init__(
         self,
-        response_data,
-        status_code=200,
-        json_error=False,
+        pubsub,
+        subscriber_count=1,
     ):
-        self.response_data = response_data
-        self.status_code = status_code
-        self.ok = 200 <= status_code < 400
-        self.json_error = json_error
+        self.pubsub = pubsub
+        self.subscriber_count = subscriber_count
+        self.published_key = None
+        self.published_message = None
 
-    def json(self):
-        if self.json_error:
-            raise ValueError("Invalid JSON")
+    def initialize_pubsub_client(self, channel):
+        assert channel == "response"
+        return self.pubsub
 
-        return self.response_data
+    def _publish(self, key, message):
+        self.published_key = key
+        self.published_message = message
+        return self.subscriber_count
 
 
 def test_parse_variable_names():
@@ -47,14 +65,33 @@ def test_parse_variable_names():
 
 
 def test_parse_variable_names_rejects_invalid_json():
-    try:
+    with pytest.raises(ValueError) as error:
         client.parse_variable_names("invalid-json")
-    except ValueError as error:
-        assert "JSON" in str(error)
-    else:
-        raise AssertionError(
-            "Invalid JSON value should raise ValueError."
-        )
+
+    assert "JSON" in str(error.value)
+
+
+def test_build_request_matches_runtime_schema():
+    payload = client.build_request(
+        variable_names=["ENV_SECRET_TEST"],
+        component_uid="Kba9Cw",
+        flow_uid="flow-test-1",
+    )
+
+    assert payload["status"] == "success"
+    assert payload["api"] == "True"
+    assert payload["debug"] == "False"
+    assert payload["uID"] == "Kba9Cw"
+    assert payload["flowUID"] == "flow-test-1"
+
+    config_value = (
+        payload["configs"]["executor"]["value"]["value"]
+        ["configs"]["variables_storing_secrets"]["value"]
+    )
+
+    assert json.loads(config_value) == [
+        "ENV_SECRET_TEST"
+    ]
 
 
 def test_masked_response_hides_secret_values():
@@ -89,12 +126,12 @@ def test_masked_response_hides_secret_values():
         ],
     )
 
-    values = (
+    masked_values = (
         masked["configs"]["executor"]["value"]["value"]
         ["outputs"]["secrets"]["value"]
     )
 
-    assert values == {
+    assert masked_values == {
         "env_secret_test": client.REDACTED_VALUE,
         "api_key": client.REDACTED_VALUE,
     }
@@ -109,39 +146,140 @@ def test_masked_response_hides_secret_values():
     )
 
 
+def test_run_runtime_request_publishes_and_receives(
+    monkeypatch,
+):
+    payload = client.build_request(
+        variable_names=["ENV_SECRET_TEST"],
+        component_uid="Kba9Cw",
+        flow_uid="flow-test-1",
+    )
+
+    response_data = {
+        "status": "success",
+        "uID": "Kba9Cw",
+        "flowUID": "flow-test-1",
+    }
+
+    pubsub = FakePubSub(
+        [
+            {
+                "type": "subscribe",
+                "data": 1,
+            },
+            {
+                "type": "message",
+                "data": json.dumps(response_data),
+            },
+        ]
+    )
+
+    runtime_client = FakeRuntimeClient(pubsub)
+
+    monkeypatch.setattr(
+        client,
+        "create_runtime_client",
+        lambda: runtime_client,
+    )
+
+    result = client.run_runtime_request(
+        payload=payload,
+        component_uid="Kba9Cw",
+        timeout_seconds=1,
+    )
+
+    assert result == response_data
+    assert runtime_client.published_key == "Kba9Cw"
+    assert json.loads(
+        runtime_client.published_message
+    ) == payload
+    assert pubsub.closed is True
+
+
+def test_run_runtime_request_requires_subscriber(
+    monkeypatch,
+):
+    pubsub = FakePubSub(
+        [
+            {
+                "type": "subscribe",
+                "data": 1,
+            }
+        ]
+    )
+
+    runtime_client = FakeRuntimeClient(
+        pubsub=pubsub,
+        subscriber_count=0,
+    )
+
+    monkeypatch.setattr(
+        client,
+        "create_runtime_client",
+        lambda: runtime_client,
+    )
+
+    payload = client.build_request(
+        variable_names=["ENV_SECRET_TEST"],
+        component_uid="Kba9Cw",
+        flow_uid="flow-test-1",
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        client.run_runtime_request(
+            payload=payload,
+            component_uid="Kba9Cw",
+            timeout_seconds=1,
+        )
+
+    assert "No NovaVision executor" in str(
+        error.value
+    )
+    assert pubsub.closed is True
+
+
 def test_main_success_masks_output(
     monkeypatch,
     capsys,
 ):
     response_data = {
-        "outputs": {
-            "secrets": {
-                "name": "secrets",
+        "status": "success",
+        "uID": "Kba9Cw",
+        "flowUID": "flow-test-1",
+        "configs": {
+            "executor": {
                 "value": {
-                    "env_secret_test": (
-                        "novavision-test-123"
-                    )
-                },
+                    "value": {
+                        "outputs": {
+                            "secrets": {
+                                "name": "secrets",
+                                "value": {
+                                    "env_secret_test": (
+                                        "novavision-test-123"
+                                    )
+                                },
+                            }
+                        }
+                    }
+                }
             }
-        }
+        },
     }
-
-    def fake_post(*args, **kwargs):
-        assert kwargs["timeout"] == (
-            client.DEFAULT_TIMEOUT_SECONDS
-        )
-
-        return FakeResponse(response_data)
-
-    monkeypatch.setattr(
-        client.requests,
-        "post",
-        fake_post,
-    )
 
     monkeypatch.setenv(
         "ENV_SECRET_NAMES",
         '["ENV_SECRET_TEST"]',
+    )
+
+    monkeypatch.setenv(
+        "NOVAVISION_COMPONENT_UID",
+        "Kba9Cw",
+    )
+
+    monkeypatch.setattr(
+        client,
+        "run_runtime_request",
+        lambda **kwargs: response_data,
     )
 
     result = client.main()
@@ -153,83 +291,64 @@ def test_main_success_masks_output(
     assert "novavision-test-123" not in output
 
 
-def test_main_handles_connection_error(
+def test_main_handles_timeout(
     monkeypatch,
     capsys,
 ):
-    def fake_post(*args, **kwargs):
-        raise requests.ConnectionError(
-            "Connection failed."
-        )
-
     monkeypatch.setattr(
-        client.requests,
-        "post",
-        fake_post,
+        client,
+        "run_runtime_request",
+        lambda **kwargs: (
+            _raise_timeout()
+        ),
     )
 
     result = client.main()
     output = capsys.readouterr().out
 
-    assert result == 4
+    assert result == 3
     assert "[FAILED]" in output
+    assert "timed out" in output
 
 
-def test_main_handles_http_error_and_masks_response(
+def _raise_timeout():
+    raise TimeoutError(
+        "NovaVision runtime response timed out."
+    )
+
+
+def test_main_handles_runtime_error_response(
     monkeypatch,
     capsys,
 ):
-    response_data = {
-        "error": "Request failed.",
-        "secrets": {
-            "value": {
-                "env_secret_test": (
-                    "novavision-test-123"
-                )
-            }
+    monkeypatch.setattr(
+        client,
+        "run_runtime_request",
+        lambda **kwargs: {
+            "status": "error",
+            "uID": "Kba9Cw",
         },
-    }
-
-    monkeypatch.setattr(
-        client.requests,
-        "post",
-        lambda *args, **kwargs: FakeResponse(
-            response_data,
-            status_code=400,
-        ),
-    )
-
-    monkeypatch.setenv(
-        "ENV_SECRET_NAMES",
-        '["ENV_SECRET_TEST"]',
-    )
-
-    result = client.main()
-    output = capsys.readouterr().out
-
-    assert result == 7
-    assert "HTTP status: 400" in output
-    assert client.REDACTED_VALUE in output
-    assert "novavision-test-123" not in output
-
-
-def test_main_handles_non_json_response(
-    monkeypatch,
-    capsys,
-):
-    monkeypatch.setattr(
-        client.requests,
-        "post",
-        lambda *args, **kwargs: FakeResponse(
-            {},
-            status_code=500,
-            json_error=True,
-        ),
     )
 
     result = client.main()
     output = capsys.readouterr().out
 
     assert result == 6
-    assert "non-JSON" in output
-    assert "HTTP status: 500" in output
+    assert "[FAILED]" in output
+    assert "runtime execution failed" in output
+
+
+def test_main_rejects_invalid_timeout(
+    monkeypatch,
+    capsys,
+):
+    monkeypatch.setenv(
+        "NOVAVISION_CLIENT_TIMEOUT",
+        "not-a-number",
+    )
+
+    result = client.main()
+    output = capsys.readouterr().out
+
+    assert result == 2
+    assert "must be a number" in output

@@ -1,32 +1,32 @@
-"""Safe HTTP client for the Environment Secrets Store component."""
+"""NovaVision runtime client for Environment Secrets Store."""
 
 import copy
 import json
 import os
 import sys
+import time
+import uuid
 from typing import Any, Dict, List, Set
 
-import requests
 
-
-DEFAULT_ENDPOINT_URL = "http://127.0.0.1:8000/api"
-DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_COMPONENT_UID = "Kba9Cw"
+DEFAULT_TIMEOUT_SECONDS = 30.0
 REDACTED_VALUE = "***REDACTED***"
 
 
 def parse_variable_names(raw_value: str) -> List[str]:
-    """Parse and validate environment variable names supplied to the client."""
+    """Parse and validate requested environment variable names."""
 
     try:
         variable_names = json.loads(raw_value)
     except json.JSONDecodeError as error:
         raise ValueError(
-            "ENV_SECRET_NAMES geçerli bir JSON listesi olmalıdır."
+            "ENV_SECRET_NAMES must be a valid JSON list."
         ) from error
 
     if not isinstance(variable_names, list) or not variable_names:
         raise ValueError(
-            "ENV_SECRET_NAMES en az bir değişken adı içermelidir."
+            "ENV_SECRET_NAMES must contain at least one variable name."
         )
 
     cleaned_names: List[str] = []
@@ -35,22 +35,22 @@ def parse_variable_names(raw_value: str) -> List[str]:
     for variable_name in variable_names:
         if not isinstance(variable_name, str):
             raise ValueError(
-                "Environment variable adlarının tamamı string olmalıdır."
+                "Environment variable names must be strings."
             )
 
         cleaned_name = variable_name.strip()
 
         if not cleaned_name:
             raise ValueError(
-                "Environment variable adı boş olamaz."
+                "Environment variable names cannot be empty."
             )
 
         output_name = cleaned_name.lower()
 
         if output_name in seen_output_names:
             raise ValueError(
-                "Environment variable adları küçük harfe çevrildiğinde "
-                "benzersiz olmalıdır."
+                "Environment variable names must remain unique "
+                "after lowercasing."
             )
 
         seen_output_names.add(output_name)
@@ -59,36 +59,54 @@ def parse_variable_names(raw_value: str) -> List[str]:
     return cleaned_names
 
 
-def build_request(variable_names: List[str]) -> Dict[str, Any]:
-    """Create the NovaVision component request payload."""
+def build_request(
+    variable_names: List[str],
+    component_uid: str,
+    flow_uid: str,
+) -> Dict[str, Any]:
+    """Build a request matching NovaVision's runtime node schema."""
 
     return {
-        "name": "EnvironmentSecretsStore",
         "type": "component",
-        "uID": "environment-secrets-store-client",
+        "name": "EnvironmentSecretsStore",
         "configs": {
             "executor": {
                 "name": "ConfigExecutor",
-                "type": "executor",
-                "field": "dependentDropdownlist",
                 "value": {
                     "name": "EnvironmentSecretsStore",
-                    "type": "object",
-                    "field": "option",
                     "value": {
-                        "inputs": {},
+                        "name": "EnvironmentSecretsStore",
+                        "inputs": {
+                            "name": "EnvironmentSecretsStore",
+                        },
                         "configs": {
                             "variables_storing_secrets": {
                                 "name": "variables_storing_secrets",
-                                "value": json.dumps(variable_names),
+                                "value": json.dumps(
+                                    variable_names
+                                ),
                                 "type": "string",
                                 "field": "textInput",
+                                "placeHolder": (
+                                    '["OPENAI_API_KEY", '
+                                    '"DATABASE_PASSWORD"]'
+                                ),
                             }
                         },
                     },
+                    "type": "object",
+                    "field": "option",
                 },
+                "type": "executor",
+                "field": "dependentDropdownlist",
             }
         },
+        "debug": "False",
+        "api": "True",
+        "uID": component_uid,
+        "flowUID": flow_uid,
+        "matchedID": None,
+        "status": "success",
     }
 
 
@@ -96,7 +114,7 @@ def mask_secret_values(
     value: Any,
     secret_output_names: Set[str],
 ) -> Any:
-    """Recursively mask secret values without modifying the original object."""
+    """Recursively mask requested secret values."""
 
     if isinstance(value, list):
         return [
@@ -147,7 +165,7 @@ def mask_secrets_output(
     secrets_output: Dict[str, Any],
     secret_output_names: Set[str],
 ) -> Dict[str, Any]:
-    """Mask both NovaVision output metadata and direct secrets mappings."""
+    """Mask NovaVision output metadata and direct secret mappings."""
 
     masked = copy.deepcopy(secrets_output)
 
@@ -162,9 +180,12 @@ def mask_secrets_output(
         key: (
             REDACTED_VALUE
             if key.lower() in secret_output_names
-            else mask_secret_values(value, secret_output_names)
+            else mask_secret_values(
+                nested_value,
+                secret_output_names,
+            )
         )
-        for key, value in masked.items()
+        for key, nested_value in masked.items()
     }
 
 
@@ -172,7 +193,7 @@ def masked_response(
     response_data: Dict[str, Any],
     variable_names: List[str],
 ) -> Dict[str, Any]:
-    """Return a deeply copied response with all requested secrets masked."""
+    """Return a safe copy with requested secret values masked."""
 
     secret_output_names = {
         variable_name.lower()
@@ -185,60 +206,210 @@ def masked_response(
     )
 
 
-def main() -> int:
-    endpoint_url = os.getenv(
-        "NOVAVISION_ENDPOINT_URL",
-        DEFAULT_ENDPOINT_URL,
+def create_runtime_client():
+    """Create NovaVision's Redis-backed runtime client."""
+
+    try:
+        from sdks.novavision.src.base.application import (
+            Application,
+        )
+        from sdks.novavision.src.base.environment import (
+            Environment,
+        )
+        from sdks.novavision.src.base.redis import MqttClient
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "NovaVision SDK could not be imported. "
+            "Run this client inside the NovaVision runtime image."
+        ) from error
+
+    application = Application()
+    environment = Environment()
+
+    return MqttClient(
+        application=application,
+        environment=environment,
     )
 
+
+def wait_until_subscribed(
+    pubsub,
+    timeout_seconds: float = 5.0,
+) -> None:
+    """Wait until Redis confirms the response subscription."""
+
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        message = pubsub.get_message(timeout=0.25)
+
+        if message and message.get("type") == "subscribe":
+            return
+
+    raise TimeoutError(
+        "Response channel subscription could not be confirmed."
+    )
+
+
+def wait_for_response(
+    pubsub,
+    component_uid: str,
+    flow_uid: str,
+    timeout_seconds: float,
+) -> Dict[str, Any]:
+    """Wait for the matching NovaVision response message."""
+
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        message = pubsub.get_message(
+            ignore_subscribe_messages=True,
+            timeout=0.5,
+        )
+
+        if not message:
+            continue
+
+        raw_data = message.get("data")
+
+        if not isinstance(raw_data, (str, bytes)):
+            continue
+
+        try:
+            response_data = json.loads(raw_data)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        if response_data.get("uID") != component_uid:
+            continue
+
+        response_flow_uid = response_data.get("flowUID")
+
+        if (
+            response_flow_uid is not None
+            and response_flow_uid != flow_uid
+        ):
+            continue
+
+        return response_data
+
+    raise TimeoutError(
+        "NovaVision runtime response timed out."
+    )
+
+
+def run_runtime_request(
+    payload: Dict[str, Any],
+    component_uid: str,
+    timeout_seconds: float,
+) -> Dict[str, Any]:
+    """Publish the request and receive its runtime response."""
+
+    runtime_client = create_runtime_client()
+    response_pubsub = runtime_client.initialize_pubsub_client(
+        "response"
+    )
+
+    try:
+        wait_until_subscribed(response_pubsub)
+
+        subscriber_count = runtime_client._publish(
+            component_uid,
+            json.dumps(payload),
+        )
+
+        if not subscriber_count:
+            raise RuntimeError(
+                "No NovaVision executor is subscribed to component "
+                f"UID {component_uid}."
+            )
+
+        return wait_for_response(
+            pubsub=response_pubsub,
+            component_uid=component_uid,
+            flow_uid=payload["flowUID"],
+            timeout_seconds=timeout_seconds,
+        )
+    finally:
+        response_pubsub.close()
+
+
+def main() -> int:
     raw_variable_names = os.getenv(
         "ENV_SECRET_NAMES",
         '["ENV_SECRET_TEST"]',
     )
 
+    component_uid = os.getenv(
+        "NOVAVISION_COMPONENT_UID",
+        DEFAULT_COMPONENT_UID,
+    ).strip()
+
     try:
-        variable_names = parse_variable_names(raw_variable_names)
+        timeout_seconds = float(
+            os.getenv(
+                "NOVAVISION_CLIENT_TIMEOUT",
+                str(DEFAULT_TIMEOUT_SECONDS),
+            )
+        )
+    except ValueError:
+        print(
+            "[FAILED] NOVAVISION_CLIENT_TIMEOUT "
+            "must be a number."
+        )
+        return 2
+
+    if not component_uid:
+        print(
+            "[FAILED] NOVAVISION_COMPONENT_UID "
+            "cannot be empty."
+        )
+        return 2
+
+    try:
+        variable_names = parse_variable_names(
+            raw_variable_names
+        )
     except ValueError as error:
         print(f"[FAILED] Client configuration error: {error}")
         return 2
 
+    flow_uid = f"environment-secrets-client-{uuid.uuid4()}"
+
+    payload = build_request(
+        variable_names=variable_names,
+        component_uid=component_uid,
+        flow_uid=flow_uid,
+    )
+
     try:
-        response = requests.post(
-            endpoint_url,
-            json=build_request(variable_names),
-            timeout=DEFAULT_TIMEOUT_SECONDS,
+        response_data = run_runtime_request(
+            payload=payload,
+            component_uid=component_uid,
+            timeout_seconds=timeout_seconds,
         )
-    except requests.Timeout:
-        print("[FAILED] NovaVision runtime request timed out.")
+    except TimeoutError as error:
+        print(f"[FAILED] {error}")
         return 3
-    except requests.ConnectionError:
-        print("[FAILED] NovaVision runtime connection could not be established.")
+    except RuntimeError as error:
+        print(f"[FAILED] {error}")
         return 4
-    except requests.RequestException as error:
+    except Exception as error:
         print(
-            "[FAILED] NovaVision runtime request failed: "
+            "[FAILED] Unexpected NovaVision runtime error: "
             f"{type(error).__name__}"
         )
         return 5
-
-    try:
-        response_data = response.json()
-    except ValueError:
-        print(
-            "[FAILED] NovaVision runtime returned a non-JSON response. "
-            f"HTTP status: {response.status_code}"
-        )
-        return 6
 
     safe_response = masked_response(
         response_data,
         variable_names,
     )
 
-    if not response.ok:
+    if response_data.get("status") != "success":
         print(
-            "[FAILED] NovaVision runtime rejected the request. "
-            f"HTTP status: {response.status_code}"
+            "[FAILED] Environment Secrets Store "
+            "runtime execution failed."
         )
         print(
             json.dumps(
@@ -247,9 +418,12 @@ def main() -> int:
                 ensure_ascii=False,
             )
         )
-        return 7
+        return 6
 
-    print("[SUCCESS] Environment Secrets Store request completed.")
+    print(
+        "[SUCCESS] Environment Secrets Store "
+        "runtime execution completed."
+    )
     print(
         json.dumps(
             safe_response,
