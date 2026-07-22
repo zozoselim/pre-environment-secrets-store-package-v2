@@ -1,9 +1,8 @@
 import json
 import re
-from pathlib import Path
-from typing import Dict, List, Literal, Union
+from typing import Literal, Union
 
-from pydantic import Field, create_model, validator
+from pydantic import Field, validator
 
 from sdks.novavision.src.base.model import (
     Config,
@@ -18,70 +17,6 @@ from sdks.novavision.src.base.model import (
 
 
 _ENV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_SCHEMA_NAMES_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "resources"
-    / "secret_outputs.json"
-)
-
-
-def _validate_names(variable_names: List[str]) -> List[str]:
-    if not isinstance(variable_names, list) or not variable_names:
-        raise ValueError("At least one environment variable name is required.")
-
-    cleaned_names: List[str] = []
-    seen_names = set()
-    seen_output_names = set()
-
-    for variable_name in variable_names:
-        if not isinstance(variable_name, str):
-            raise ValueError("Environment variable names must be strings.")
-
-        cleaned_name = variable_name.strip()
-        if not _ENV_NAME_PATTERN.fullmatch(cleaned_name):
-            raise ValueError(
-                f"Invalid environment variable name: {cleaned_name!r}."
-            )
-
-        if cleaned_name in seen_names:
-            raise ValueError(
-                f"Duplicate environment variable name: {cleaned_name}."
-            )
-
-        output_name = cleaned_name.lower()
-        if output_name in seen_output_names:
-            raise ValueError(
-                "Environment variable names must remain unique after "
-                f"lowercasing: {cleaned_name}."
-            )
-
-        seen_names.add(cleaned_name)
-        seen_output_names.add(output_name)
-        cleaned_names.append(cleaned_name)
-
-    return cleaned_names
-
-
-def load_declared_secret_names() -> List[str]:
-    """Load non-secret variable names used to generate visual output ports."""
-
-    try:
-        raw_names = json.loads(_SCHEMA_NAMES_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise RuntimeError(
-            f"Output schema file was not found: {_SCHEMA_NAMES_PATH}"
-        ) from error
-    except json.JSONDecodeError as error:
-        raise RuntimeError(
-            "resources/secret_outputs.json must contain a valid JSON list."
-        ) from error
-
-    return _validate_names(raw_names)
-
-
-DECLARED_SECRET_NAMES = load_declared_secret_names()
-DECLARED_OUTPUT_NAMES = [name.lower() for name in DECLARED_SECRET_NAMES]
-DEFAULT_VARIABLES_JSON = json.dumps(DECLARED_SECRET_NAMES)
 
 
 class EmptyInputs(Inputs):
@@ -97,8 +32,10 @@ class VariablesStoringSecrets(Config):
         "variables_storing_secrets"
     ] = "variables_storing_secrets"
 
+    # NovaVision textInput sends the value as text.  The validator below keeps
+    # the UI-compatible string form while validating the embedded JSON list.
     value: str = Field(
-        default=DEFAULT_VARIABLES_JSON,
+        default='["ENV_SECRET_TEST"]',
         min_length=2,
     )
 
@@ -111,7 +48,7 @@ class VariablesStoringSecrets(Config):
 
     @validator("value")
     def validate_variable_names(cls, value: str) -> str:
-        """Validate the UI list and keep it aligned with generated ports."""
+        """Validate and normalize the JSON list stored by the UI field."""
 
         try:
             variable_names = json.loads(value)
@@ -120,14 +57,48 @@ class VariablesStoringSecrets(Config):
                 "Value must be a valid JSON list of environment variable names."
             ) from error
 
-        cleaned_names = _validate_names(variable_names)
+        if not isinstance(variable_names, list):
+            raise ValueError("Value must be a JSON list.")
 
-        if cleaned_names != DECLARED_SECRET_NAMES:
+        if not variable_names:
             raise ValueError(
-                "Configured secret names must match the generated output schema: "
-                f"{DECLARED_SECRET_NAMES}. Update resources/secret_outputs.json, "
-                "export the package schema again, and redeploy."
+                "At least one environment variable name is required."
             )
+
+        cleaned_names = []
+        seen_names = set()
+        seen_output_names = set()
+
+        for variable_name in variable_names:
+            if not isinstance(variable_name, str):
+                raise ValueError(
+                    "Environment variable names must be strings."
+                )
+
+            cleaned_name = variable_name.strip()
+
+            if not _ENV_NAME_PATTERN.fullmatch(cleaned_name):
+                raise ValueError(
+                    "Invalid environment variable name: "
+                    f"{cleaned_name!r}."
+                )
+
+            if cleaned_name in seen_names:
+                raise ValueError(
+                    "Duplicate environment variable name: "
+                    f"{cleaned_name}."
+                )
+
+            output_name = cleaned_name.lower()
+            if output_name in seen_output_names:
+                raise ValueError(
+                    "Environment variable names must remain unique after "
+                    f"lowercasing: {cleaned_name}."
+                )
+
+            seen_names.add(cleaned_name)
+            seen_output_names.add(output_name)
+            cleaned_names.append(cleaned_name)
 
         return json.dumps(cleaned_names)
 
@@ -135,8 +106,8 @@ class VariablesStoringSecrets(Config):
         title = "Variables Storing Secrets"
         json_schema_extra = {
             "shortDescription": (
-                "JSON list of environment variable names. Visual output ports "
-                "are generated from resources/secret_outputs.json."
+                "JSON list of environment variable names. Secret values are "
+                "read only at runtime."
             )
         }
 
@@ -152,20 +123,23 @@ class SecretOutput(Output):
         title = "Secret"
 
 
-_output_fields = {
-    output_name: (SecretOutput, ...)
-    for output_name in DECLARED_OUTPUT_NAMES
-}
-
-PackageOutputs = create_model(
-    "PackageOutputs",
-    __base__=Outputs,
-    **_output_fields,
-)
-
-
 class EnvironmentSecretsStoreConfigs(Configs):
     variables_storing_secrets: VariablesStoringSecrets
+
+
+class PackageOutputs(Outputs):
+    """Allow one runtime output field for every requested environment variable."""
+
+    class Config:
+        # Runtime keys such as ``openai_api_key`` and ``database_password`` are
+        # not known when the static package schema is exported.
+        extra = "allow"
+        json_schema_extra = {
+            "additionalProperties": {
+                "title": "Secret",
+                "type": "object",
+            }
+        }
 
 
 class PackageRequest(Request):

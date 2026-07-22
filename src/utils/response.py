@@ -15,10 +15,10 @@ from components.EnvironmentSecretsStore.src.models.PackageModel import (
 )
 
 
-def build_response(context, secrets: Dict[str, str]):
-    """Build one explicitly named string output for each requested secret."""
+def create_secret_outputs(secrets: Dict[str, str]) -> Dict[str, SecretOutput]:
+    """Create one separately named output model for each secret."""
 
-    output_values = {
+    return {
         output_name: SecretOutput(
             name=output_name,
             value=secret_value,
@@ -26,14 +26,28 @@ def build_response(context, secrets: Dict[str, str]):
         for output_name, secret_value in secrets.items()
     }
 
-    package_outputs = PackageOutputs(**output_values)
+
+def build_response(
+    context,
+    secrets: Dict[str, str],
+):
+    """Build a NovaVision response with one output per requested secret."""
+
+    dynamic_outputs = create_secret_outputs(secrets)
+    package_outputs = PackageOutputs(**dynamic_outputs)
     package_response = PackageResponse(outputs=package_outputs)
 
     component_executor = EnvironmentSecretsStoreExecutor(
         value=package_response,
     )
-    executor = ConfigExecutor(value=component_executor)
-    package_configs = PackageConfigs(executor=executor)
+
+    executor = ConfigExecutor(
+        value=component_executor,
+    )
+
+    package_configs = PackageConfigs(
+        executor=executor,
+    )
 
     package_helper = PackageHelper(
         packageModel=PackageModel,
