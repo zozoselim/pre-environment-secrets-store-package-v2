@@ -1,4 +1,3 @@
-import json
 import os
 
 import pytest
@@ -7,6 +6,9 @@ os.environ.setdefault("NAME", "OpenCV/test")
 
 from components.EnvironmentSecretsStore.src.executors.EnvironmentSecretsStore import (
     EnvironmentSecretsStore,
+)
+from components.EnvironmentSecretsStore.src.utils.response import (
+    create_secret_outputs,
 )
 
 
@@ -32,6 +34,20 @@ def test_reads_and_lowercases_requested_variables(monkeypatch):
         "my_secret_a": "alpha",
         "my_secret_b": "beta",
     }
+
+
+def test_creates_one_separate_output_per_secret():
+    outputs = create_secret_outputs(
+        {
+            "my_secret_a": "alpha",
+            "my_secret_b": "beta",
+        }
+    )
+
+    assert set(outputs) == {"my_secret_a", "my_secret_b"}
+    assert outputs["my_secret_a"].name == "my_secret_a"
+    assert outputs["my_secret_a"].value == "alpha"
+    assert outputs["my_secret_a"].type == "string"
 
 
 def test_missing_variable_error_does_not_contain_secret_values(monkeypatch):

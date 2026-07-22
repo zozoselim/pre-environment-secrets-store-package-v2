@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Dict, Literal, Union
+from typing import Literal, Union
 
 from pydantic import Field, validator
 
@@ -32,6 +32,8 @@ class VariablesStoringSecrets(Config):
         "variables_storing_secrets"
     ] = "variables_storing_secrets"
 
+    # NovaVision textInput sends the value as text.  The validator below keeps
+    # the UI-compatible string form while validating the embedded JSON list.
     value: str = Field(
         default='["ENV_SECRET_TEST"]',
         min_length=2,
@@ -46,7 +48,7 @@ class VariablesStoringSecrets(Config):
 
     @validator("value")
     def validate_variable_names(cls, value: str) -> str:
-        """Validate and normalize the JSON list stored by the UI text field."""
+        """Validate and normalize the JSON list stored by the UI field."""
 
         try:
             variable_names = json.loads(value)
@@ -110,15 +112,15 @@ class VariablesStoringSecrets(Config):
         }
 
 
-class SecretsOutput(Output):
-    """Map of lowercase output names to secret values."""
+class SecretOutput(Output):
+    """One requested secret exposed as its own string output."""
 
-    name: Literal["secrets"] = "secrets"
-    value: Dict[str, str]
-    type: Literal["object"] = "object"
+    name: str
+    value: str
+    type: Literal["string"] = "string"
 
     class Config:
-        title = "Secrets"
+        title = "Secret"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):
@@ -126,7 +128,18 @@ class EnvironmentSecretsStoreConfigs(Configs):
 
 
 class PackageOutputs(Outputs):
-    secrets: SecretsOutput
+    """Allow one runtime output field for every requested environment variable."""
+
+    class Config:
+        # Runtime keys such as ``openai_api_key`` and ``database_password`` are
+        # not known when the static package schema is exported.
+        extra = "allow"
+        json_schema_extra = {
+            "additionalProperties": {
+                "title": "Secret",
+                "type": "object",
+            }
+        }
 
 
 class PackageRequest(Request):

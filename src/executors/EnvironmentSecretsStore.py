@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Dict, Iterable, List
@@ -25,15 +26,14 @@ from components.EnvironmentSecretsStore.src.utils.response import (
 )
 
 
+_ENV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
 class EnvironmentSecretsStore(Component):
     """Read explicitly requested secrets from the runtime environment."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
-
-        # NovaVision normally injects environment variables into the container.
-        # Loading mounted dotenv files as a fallback also supports local tests.
-        self.load_runtime_environment()
 
         self.request.model = PackageModel(**self.request.data)
 
@@ -51,7 +51,7 @@ class EnvironmentSecretsStore(Component):
 
     @staticmethod
     def candidate_dotenv_paths() -> Iterable[Path]:
-        """Return supported dotenv locations without exposing their contents."""
+        """Return supported dotenv locations without exposing contents."""
 
         custom_path = os.getenv(
             "ENVIRONMENT_SECRETS_STORE_DOTENV_PATH"
@@ -59,7 +59,7 @@ class EnvironmentSecretsStore(Component):
         if custom_path:
             yield Path(custom_path)
 
-        # Paths used by the NovaVision runtime/SDK.
+        # NovaVision application/runtime locations.
         yield Path("/opt/app/.env")
         yield Path("/opt/novavision/.env")
 
@@ -69,7 +69,7 @@ class EnvironmentSecretsStore(Component):
 
     @classmethod
     def load_runtime_environment(cls) -> None:
-        """Load available dotenv files while preserving injected variables."""
+        """Load mounted dotenv files while preserving injected variables."""
 
         loaded_paths = set()
         for dotenv_path in cls.candidate_dotenv_paths():
@@ -109,6 +109,7 @@ class EnvironmentSecretsStore(Component):
             )
 
         cleaned_names: List[str] = []
+        seen_names = set()
         seen_output_names = set()
 
         for variable_name in variable_names:
@@ -118,9 +119,16 @@ class EnvironmentSecretsStore(Component):
                 )
 
             cleaned_name = variable_name.strip()
-            if not cleaned_name:
+            if not _ENV_NAME_PATTERN.fullmatch(cleaned_name):
                 raise ValueError(
-                    "Environment variable names cannot be empty."
+                    "Invalid environment variable name: "
+                    f"{cleaned_name!r}."
+                )
+
+            if cleaned_name in seen_names:
+                raise ValueError(
+                    "Duplicate environment variable name: "
+                    f"{cleaned_name}."
                 )
 
             output_name = cleaned_name.lower()
@@ -130,6 +138,7 @@ class EnvironmentSecretsStore(Component):
                     "lowercasing."
                 )
 
+            seen_names.add(cleaned_name)
             seen_output_names.add(output_name)
             cleaned_names.append(cleaned_name)
 
@@ -158,13 +167,17 @@ class EnvironmentSecretsStore(Component):
 
         return secrets
 
-        def run(self):
-            # The application .env file may be generated or updated after the
-            # package worker starts, so reload it before every execution.
-            self.load_runtime_environment()
+    def run(self):
+        """Reload the application environment and create separate outputs."""
 
-            self.secrets = self.read_secrets()
-            return build_response(context=self)
+        # NovaVision may generate/update /opt/app/.env after the worker starts.
+        self.load_runtime_environment()
+        self.secrets = self.read_secrets()
+
+        return build_response(
+            context=self,
+            secrets=self.secrets,
+        )
 
 
 if __name__ == "__main__":

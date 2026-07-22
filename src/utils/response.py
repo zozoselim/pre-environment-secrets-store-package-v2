@@ -1,5 +1,7 @@
 """Response builder for the Environment Secrets Store component."""
 
+from typing import Dict
+
 from sdks.novavision.src.helper.package import PackageHelper
 
 from components.EnvironmentSecretsStore.src.models.PackageModel import (
@@ -9,24 +11,31 @@ from components.EnvironmentSecretsStore.src.models.PackageModel import (
     PackageModel,
     PackageOutputs,
     PackageResponse,
-    SecretsOutput,
+    SecretOutput,
 )
 
 
-def build_response(context):
-    """Build a response containing requested secrets as an object output."""
+def create_secret_outputs(secrets: Dict[str, str]) -> Dict[str, SecretOutput]:
+    """Create one separately named output model for each secret."""
 
-    secrets_output = SecretsOutput(
-        value=context.secrets,
-    )
+    return {
+        output_name: SecretOutput(
+            name=output_name,
+            value=secret_value,
+        )
+        for output_name, secret_value in secrets.items()
+    }
 
-    package_outputs = PackageOutputs(
-        secrets=secrets_output,
-    )
 
-    package_response = PackageResponse(
-        outputs=package_outputs,
-    )
+def build_response(
+    context,
+    secrets: Dict[str, str],
+):
+    """Build a NovaVision response with one output per requested secret."""
+
+    dynamic_outputs = create_secret_outputs(secrets)
+    package_outputs = PackageOutputs(**dynamic_outputs)
+    package_response = PackageResponse(outputs=package_outputs)
 
     component_executor = EnvironmentSecretsStoreExecutor(
         value=package_response,
