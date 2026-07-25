@@ -66,7 +66,13 @@ class EnvironmentSecretsStore(Component):
             yield Path(custom_path)
 
         # Paths used by the NovaVision runtime/SDK.
+        # Paths used by the NovaVision runtime/SDK.
         yield Path("/opt/app/.env")
+
+        # NovaVision /opt/app/.env dosyasını yeniden oluşturabildiği için
+        # secret değerleri kalıcı olan ayrı dosyadan da yüklenir.
+        yield Path("/opt/app/environment-secrets-store.env")
+
         yield Path("/opt/novavision/.env")
 
         # Local development fallbacks.
