@@ -73,6 +73,7 @@ class EnvironmentSecretsStore(Component):
         # secret değerleri kalıcı olan ayrı dosyadan da yüklenir.
         yield Path("/opt/app/environment-secrets-store.env")
 
+        yield Path("/storage/environment-secrets-store.env")
         yield Path("/opt/novavision/.env")
 
         # Local development fallbacks.
