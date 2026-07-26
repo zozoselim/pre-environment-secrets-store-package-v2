@@ -84,14 +84,47 @@ def test_build_request_matches_runtime_schema():
     assert payload["uID"] == "Kba9Cw"
     assert payload["flowUID"] == "flow-test-1"
 
+    selected_executor = payload["configs"]["executor"]["value"]
+    assert selected_executor["name"] == "Str"
+
     config_value = (
-        payload["configs"]["executor"]["value"]["value"]
+        selected_executor["value"]
         ["configs"]["variables_storing_secrets"]["value"]
     )
 
     assert json.loads(config_value) == [
         "ENV_SECRET_TEST"
     ]
+
+
+def test_build_request_supports_list_output():
+    payload = client.build_request(
+        variable_names=["SECRET_A", "SECRET_B"],
+        component_uid="Kba9Cw",
+        flow_uid="flow-list-1",
+        output_type="List",
+    )
+
+    selected_executor = payload["configs"]["executor"]["value"]
+    assert selected_executor["name"] == "List"
+    assert selected_executor["value"]["name"] == "List"
+
+
+def test_build_request_rejects_multiple_names_for_str():
+    with pytest.raises(ValueError) as error:
+        client.build_request(
+            variable_names=["SECRET_A", "SECRET_B"],
+            component_uid="Kba9Cw",
+            flow_uid="flow-str-1",
+            output_type="Str",
+        )
+
+    assert "exactly one" in str(error.value)
+
+
+def test_parse_output_type_accepts_string_alias():
+    assert client.parse_output_type("string") == "Str"
+    assert client.parse_output_type("list") == "List"
 
 
 def test_masked_response_hides_secret_values():
@@ -144,6 +177,49 @@ def test_masked_response_hides_secret_values():
     assert original_values["env_secret_test"] == (
         "novavision-test-123"
     )
+
+
+def test_masked_response_hides_string_output():
+    response = {
+        "outputs": {
+            "secrets": {
+                "name": "secrets",
+                "type": "string",
+                "value": "novavision-test-123",
+            }
+        }
+    }
+
+    masked = client.masked_response(
+        response,
+        ["ENV_SECRET_TEST"],
+    )
+
+    assert masked["outputs"]["secrets"]["value"] == (
+        client.REDACTED_VALUE
+    )
+
+
+def test_masked_response_hides_list_output():
+    response = {
+        "outputs": {
+            "secrets": {
+                "name": "secrets",
+                "type": "object",
+                "value": ["secret-a", "secret-b"],
+            }
+        }
+    }
+
+    masked = client.masked_response(
+        response,
+        ["SECRET_A", "SECRET_B"],
+    )
+
+    assert masked["outputs"]["secrets"]["value"] == [
+        client.REDACTED_VALUE,
+        client.REDACTED_VALUE,
+    ]
 
 
 def test_run_runtime_request_publishes_and_receives(
@@ -253,11 +329,7 @@ def test_main_success_masks_output(
                         "outputs": {
                             "secrets": {
                                 "name": "secrets",
-                                "value": {
-                                    "env_secret_test": (
-                                        "novavision-test-123"
-                                    )
-                                },
+                                "value": "novavision-test-123",
                             }
                         }
                     }

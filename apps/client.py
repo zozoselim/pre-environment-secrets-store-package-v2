@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Set
 DEFAULT_COMPONENT_UID = "Kba9Cw"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 REDACTED_VALUE = "***REDACTED***"
+VALID_OUTPUT_TYPES = {"Str", "List"}
 
 
 def parse_variable_names(raw_value: str) -> List[str]:
@@ -59,12 +60,38 @@ def parse_variable_names(raw_value: str) -> List[str]:
     return cleaned_names
 
 
+def parse_output_type(raw_value: str) -> str:
+    """Validate the selected NovaVision executor/output mode."""
+
+    normalized = raw_value.strip().lower()
+    mapping = {
+        "str": "Str",
+        "string": "Str",
+        "list": "List",
+    }
+
+    if normalized not in mapping:
+        raise ValueError(
+            "ENV_SECRET_OUTPUT_TYPE must be Str or List."
+        )
+
+    return mapping[normalized]
+
+
 def build_request(
     variable_names: List[str],
     component_uid: str,
     flow_uid: str,
+    output_type: str = "Str",
 ) -> Dict[str, Any]:
     """Build a request matching NovaVision's runtime node schema."""
+
+    selected_output_type = parse_output_type(output_type)
+
+    if selected_output_type == "Str" and len(variable_names) != 1:
+        raise ValueError(
+            "Str output requires exactly one environment variable name."
+        )
 
     return {
         "type": "component",
@@ -73,11 +100,11 @@ def build_request(
             "executor": {
                 "name": "ConfigExecutor",
                 "value": {
-                    "name": "EnvironmentSecretsStore",
+                    "name": selected_output_type,
                     "value": {
-                        "name": "EnvironmentSecretsStore",
+                        "name": selected_output_type,
                         "inputs": {
-                            "name": "EnvironmentSecretsStore",
+                            "name": selected_output_type,
                         },
                         "configs": {
                             "variables_storing_secrets": {
@@ -135,15 +162,19 @@ def mask_secret_values(
             masked[key] = REDACTED_VALUE
             continue
 
-        if (
-            key == "value"
-            and object_name == "secrets"
-            and isinstance(nested_value, dict)
-        ):
-            masked[key] = {
-                secret_name: REDACTED_VALUE
-                for secret_name in nested_value
-            }
+        if key == "value" and object_name == "secrets":
+            if isinstance(nested_value, dict):
+                masked[key] = {
+                    secret_name: REDACTED_VALUE
+                    for secret_name in nested_value
+                }
+            elif isinstance(nested_value, list):
+                masked[key] = [
+                    REDACTED_VALUE
+                    for _ in nested_value
+                ]
+            else:
+                masked[key] = REDACTED_VALUE
             continue
 
         if key == "secrets" and isinstance(nested_value, dict):
@@ -169,11 +200,20 @@ def mask_secrets_output(
 
     masked = copy.deepcopy(secrets_output)
 
-    if isinstance(masked.get("value"), dict):
-        masked["value"] = {
-            secret_name: REDACTED_VALUE
-            for secret_name in masked["value"]
-        }
+    if "value" in masked:
+        value = masked["value"]
+        if isinstance(value, dict):
+            masked["value"] = {
+                secret_name: REDACTED_VALUE
+                for secret_name in value
+            }
+        elif isinstance(value, list):
+            masked["value"] = [
+                REDACTED_VALUE
+                for _ in value
+            ]
+        else:
+            masked["value"] = REDACTED_VALUE
         return masked
 
     return {
@@ -345,6 +385,11 @@ def main() -> int:
         DEFAULT_COMPONENT_UID,
     ).strip()
 
+    raw_output_type = os.getenv(
+        "ENV_SECRET_OUTPUT_TYPE",
+        "Str",
+    )
+
     try:
         timeout_seconds = float(
             os.getenv(
@@ -370,17 +415,19 @@ def main() -> int:
         variable_names = parse_variable_names(
             raw_variable_names
         )
+        output_type = parse_output_type(raw_output_type)
+
+        payload = build_request(
+            variable_names=variable_names,
+            component_uid=component_uid,
+            flow_uid=f"environment-secrets-client-{uuid.uuid4()}",
+            output_type=output_type,
+        )
     except ValueError as error:
         print(f"[FAILED] Client configuration error: {error}")
         return 2
 
-    flow_uid = f"environment-secrets-client-{uuid.uuid4()}"
-
-    payload = build_request(
-        variable_names=variable_names,
-        component_uid=component_uid,
-        flow_uid=flow_uid,
-    )
+    flow_uid = payload["flowUID"]
 
     try:
         response_data = run_runtime_request(

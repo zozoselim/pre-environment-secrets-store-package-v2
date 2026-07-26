@@ -1,51 +1,93 @@
 # Environment Secrets Store
 
-Environment Secrets Store is a NovaVision workflow component that retrieves an explicitly configured list of environment variables at runtime. Secret values are not embedded in the workflow definition or source code.
+Environment Secrets Store is a NovaVision workflow component that retrieves explicitly requested environment variables at runtime. Secret values are not embedded in the workflow definition or source code.
 
-## Behavior
+## Output Type
 
-The `variables_storing_secrets` configuration accepts a JSON list:
+The component now provides an **Output Type** selector like the Text Input component:
+
+- **Str**: Returns one secret value as a string.
+- **List**: Returns all requested secret values as a list, in the same order as `variables_storing_secrets`.
+
+### Str example
+
+Configuration:
 
 ```json
-["MY_SECRET_A", "MY_SECRET_B"]
+["ENV_SECRET_TEST"]
 ```
 
-The component reads those names from the runtime environment and produces one object output named `secrets`:
+Output:
+
+```text
+novavision-test-123
+```
+
+`Str` requires exactly one environment variable name. Selecting more than one produces a clear validation error.
+
+### List example
+
+Configuration:
 
 ```json
-{
-  "my_secret_a": "value-a",
-  "my_secret_b": "value-b"
-}
+["API_KEY", "DATABASE_PASSWORD"]
 ```
 
-Output keys are lowercase. Missing variables cause an error that contains variable names only, never secret values.
+Output:
+
+```json
+[
+  "api-key-value",
+  "database-password-value"
+]
+```
+
+The list preserves the configuration order. Secret names are not included in the output.
 
 ## NovaVision environment loading
 
 NovaVision normally injects environment variables into the container. The executor also loads mounted dotenv files from these locations when available:
 
 - `/opt/app/.env`
+- `/opt/app/environment-secrets-store.env`
+- `/storage/environment-secrets-store.env`
 - `/opt/novavision/.env`
 - local `.env` for development
 - the optional path in `ENVIRONMENT_SECRETS_STORE_DOTENV_PATH`
 
 Already injected environment variables take precedence because dotenv loading uses `override=False`.
 
+For the current NovaVision local deployment, `/storage/environment-secrets-store.env` is persistent across container restarts.
+
+## Package structure
+
+```text
+src/
+  executors/
+    EnvironmentSecretsStore.py  # shared secret-loading logic
+    Str.py                       # string output executor
+    List.py                      # list output executor
+  models/
+    PackageModel.py              # Str/List UI and response schemas
+  utils/
+    response.py                  # response builders
+```
+
 ## Package image
 
-Use the existing NovaVision **Open CV** image. A separate custom image is not required for this package.
+Use the existing NovaVision **Open CV** image. A separate custom image is not required.
 
 ## Security
 
 - Never commit `.env` files or real credentials.
-- Never log or print output values.
+- Never log or print secret values.
 - Test with a fake variable such as `ENV_SECRET_TEST`.
-- Connect the `secrets` output only to trusted downstream components.
+- Connect secret outputs only to trusted downstream components.
+- The NovaVision Raw output panel displays returned values, so do not include real credentials in screenshots.
 
 ## Local schema export
 
-Run from the image/runtime repository where the package is mounted under `components/EnvironmentSecretsStore`:
+Run from the NovaVision image/runtime repository where the package is mounted under `components/EnvironmentSecretsStore`:
 
 ```powershell
 python apps/export.py
@@ -55,11 +97,20 @@ This creates `data.json`.
 
 ## Local client test
 
-Start the NovaVision service, then set a fake value:
+String mode:
 
 ```powershell
 $env:ENV_SECRET_TEST = "novavision-test-123"
 $env:ENV_SECRET_NAMES = '["ENV_SECRET_TEST"]'
+$env:ENV_SECRET_OUTPUT_TYPE = "Str"
+python apps/client.py
+```
+
+List mode:
+
+```powershell
+$env:ENV_SECRET_NAMES = '["ENV_SECRET_TEST", "SECOND_SECRET"]'
+$env:ENV_SECRET_OUTPUT_TYPE = "List"
 python apps/client.py
 ```
 
@@ -79,15 +130,11 @@ pytest -q
 
 1. Add the Environment Secrets Store package.
 2. Keep the package linked to the Open CV image.
-3. Set `variables_storing_secrets`, for example:
+3. Select `Str` or `List` from **Output Type**.
+4. Set `variables_storing_secrets`.
+5. Save and redeploy/restart when the output executor changes.
+6. Run the flow and connect the output to a compatible downstream component.
 
-   ```json
-   ["ENV_SECRET_TEST"]
-   ```
+## Compatibility note
 
-4. Deploy locally.
-5. Connect the `secrets` object output to a trusted component that accepts object input.
-
-## NovaVision compatibility note
-
-Roboflow dynamically creates one visual output port per requested variable. NovaVision package schemas are static, so this implementation exposes a single object output whose lowercase keys correspond to the requested variables. Exact runtime-created visual ports require NovaVision platform support.
+The original object output mapped lowercase variable names to values. This revision intentionally changes the output contract to selectable `Str` or `List` modes, following the Text Input package pattern.

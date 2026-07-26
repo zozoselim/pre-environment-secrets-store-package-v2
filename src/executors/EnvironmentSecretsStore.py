@@ -1,10 +1,10 @@
-"""Runtime executor for the Environment Secrets Store component."""
+"""Shared runtime logic for Environment Secrets Store executors."""
 
 import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Iterable, List
 
 from dotenv import load_dotenv
 
@@ -18,16 +18,10 @@ sys.path.append(
 from sdks.novavision.src.base.component import Component
 
 if __package__:
-    # Clean install veya Python package olarak import edildiğinde.
     from ..models.PackageModel import PackageModel
-    from ..utils.response import build_response
 else:
-    # NovaVision executor dosyayı doğrudan çalıştırdığında.
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         PackageModel,
-    )
-    from components.EnvironmentSecretsStore.src.utils.response import (
-        build_response,
     )
 
 
@@ -37,10 +31,7 @@ class EnvironmentSecretsStore(Component):
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
 
-        # NovaVision normally injects environment variables into the container.
-        # Loading mounted dotenv files as a fallback also supports local tests.
         self.load_runtime_environment()
-
         self.request.model = PackageModel(**self.request.data)
 
         raw_variable_names = self.request.get_param(
@@ -49,7 +40,7 @@ class EnvironmentSecretsStore(Component):
         self.variable_names = self.parse_variable_names(
             raw_variable_names
         )
-        self.secrets: Dict[str, str] = {}
+        self.secret_values: List[str] = []
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
@@ -65,14 +56,9 @@ class EnvironmentSecretsStore(Component):
         if custom_path:
             yield Path(custom_path)
 
-        # Paths used by the NovaVision runtime/SDK.
-        # Paths used by the NovaVision runtime/SDK.
+        # NovaVision runtime paths.
         yield Path("/opt/app/.env")
-
-        # NovaVision /opt/app/.env dosyasını yeniden oluşturabildiği için
-        # secret değerleri kalıcı olan ayrı dosyadan da yüklenir.
         yield Path("/opt/app/environment-secrets-store.env")
-
         yield Path("/storage/environment-secrets-store.env")
         yield Path("/opt/novavision/.env")
 
@@ -148,10 +134,10 @@ class EnvironmentSecretsStore(Component):
 
         return cleaned_names
 
-    def read_secrets(self) -> Dict[str, str]:
-        """Read requested variables without logging or hardcoding values."""
+    def read_secret_values(self) -> List[str]:
+        """Read requested secret values in configuration order."""
 
-        secrets: Dict[str, str] = {}
+        secret_values: List[str] = []
         missing_variables: List[str] = []
 
         for variable_name in self.variable_names:
@@ -161,7 +147,7 @@ class EnvironmentSecretsStore(Component):
                 missing_variables.append(variable_name)
                 continue
 
-            secrets[variable_name.lower()] = variable_value
+            secret_values.append(variable_value)
 
         if missing_variables:
             raise RuntimeError(
@@ -169,17 +155,15 @@ class EnvironmentSecretsStore(Component):
                 + ", ".join(missing_variables)
             )
 
-        return secrets
+        return secret_values
 
-    def run(self):
-        # NovaVision may create or update /opt/app/.env after the worker starts.
-        # Reload supported dotenv files before every flow execution.
-        self.load_runtime_environment()
-        self.secrets = self.read_secrets()
-        return build_response(context=self)
+    def read_single_secret(self) -> str:
+        """Read exactly one secret for Str output mode."""
 
+        if len(self.variable_names) != 1:
+            raise ValueError(
+                "Str output requires exactly one environment variable name. "
+                "Select List when requesting multiple secrets."
+            )
 
-if __name__ == "__main__":
-    from sdks.novavision.src.helper.executor import Executor
-
-    Executor(sys.argv[1]).run()
+        return self.read_secret_values()[0]
