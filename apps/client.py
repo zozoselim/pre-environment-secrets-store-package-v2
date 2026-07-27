@@ -59,13 +59,12 @@ def parse_variable_names(raw_value: str) -> List[str]:
     return cleaned_names
 
 
-
 def build_request(
     variable_names: List[str],
     component_uid: str,
     flow_uid: str,
 ) -> Dict[str, Any]:
-    """Build a request matching NovaVision's single-executor schema."""
+    """Build a request matching NovaVision's runtime node schema."""
 
     return {
         "type": "component",
@@ -92,7 +91,7 @@ def build_request(
                                     '["OPENAI_API_KEY", '
                                     '"DATABASE_PASSWORD"]'
                                 ),
-                            },
+                            }
                         },
                     },
                     "type": "object",
@@ -136,19 +135,15 @@ def mask_secret_values(
             masked[key] = REDACTED_VALUE
             continue
 
-        if key == "value" and object_name == "secrets":
-            if isinstance(nested_value, dict):
-                masked[key] = {
-                    secret_name: REDACTED_VALUE
-                    for secret_name in nested_value
-                }
-            elif isinstance(nested_value, list):
-                masked[key] = [
-                    REDACTED_VALUE
-                    for _ in nested_value
-                ]
-            else:
-                masked[key] = REDACTED_VALUE
+        if (
+            key == "value"
+            and object_name == "secrets"
+            and isinstance(nested_value, dict)
+        ):
+            masked[key] = {
+                secret_name: REDACTED_VALUE
+                for secret_name in nested_value
+            }
             continue
 
         if key == "secrets" and isinstance(nested_value, dict):
@@ -174,20 +169,11 @@ def mask_secrets_output(
 
     masked = copy.deepcopy(secrets_output)
 
-    if "value" in masked:
-        value = masked["value"]
-        if isinstance(value, dict):
-            masked["value"] = {
-                secret_name: REDACTED_VALUE
-                for secret_name in value
-            }
-        elif isinstance(value, list):
-            masked["value"] = [
-                REDACTED_VALUE
-                for _ in value
-            ]
-        else:
-            masked["value"] = REDACTED_VALUE
+    if isinstance(masked.get("value"), dict):
+        masked["value"] = {
+            secret_name: REDACTED_VALUE
+            for secret_name in masked["value"]
+        }
         return masked
 
     return {
@@ -201,6 +187,7 @@ def mask_secrets_output(
         )
         for key, nested_value in masked.items()
     }
+
 
 def masked_response(
     response_data: Dict[str, Any],
@@ -357,7 +344,6 @@ def main() -> int:
         "NOVAVISION_COMPONENT_UID",
         DEFAULT_COMPONENT_UID,
     ).strip()
-
 
     try:
         timeout_seconds = float(

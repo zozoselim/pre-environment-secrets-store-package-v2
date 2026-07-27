@@ -105,13 +105,13 @@ class VariablesStoringSecrets(Config):
         json_schema_extra = {
             "shortDescription": (
                 "JSON list of environment variable names. Secret values are "
-                "read only at runtime and returned inside one secrets object."
+                "read only at runtime."
             )
         }
 
 
 class SecretsOutput(Output):
-    """Requested secret values exposed through one static object output."""
+    """Map of lowercase output names to secret values."""
 
     name: Literal["secrets"] = "secrets"
     value: Dict[str, str]
@@ -148,7 +148,6 @@ class EnvironmentSecretsStoreExecutor(Config):
         "EnvironmentSecretsStore"
     ] = "EnvironmentSecretsStore"
 
-    # NovaVision expects one request model and one response model here.
     value: Union[
         PackageRequest,
         PackageResponse,
@@ -167,8 +166,6 @@ class EnvironmentSecretsStoreExecutor(Config):
 
 
 class ConfigExecutor(Config):
-    """Expose one Environment Secrets Store runtime executor."""
-
     name: Literal["ConfigExecutor"] = "ConfigExecutor"
     value: EnvironmentSecretsStoreExecutor
     type: Literal["executor"] = "executor"

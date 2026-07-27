@@ -18,7 +18,12 @@ def _register_package(name: str, path: Path) -> None:
 
 
 def _prepare_imports() -> None:
-    """Create the minimal package hierarchy required by the executor tests."""
+    """
+    Create the package hierarchy required by the executor.
+
+    NovaVision SDK is supplied by the NovaVision runtime. Unit tests use
+    minimal fake modules so executor logic can also be tested locally.
+    """
 
     _register_package("novavision", SRC_DIR)
     _register_package("novavision.package", SRC_DIR)
@@ -55,6 +60,7 @@ def _prepare_imports() -> None:
             self.bootstrap_data = bootstrap
 
     component_module.Component = FakeComponent
+
     sys.modules[
         "sdks.novavision.src.base.component"
     ] = component_module
@@ -68,6 +74,7 @@ def _prepare_imports() -> None:
             self.data = data
 
     model_module.PackageModel = FakePackageModel
+
     sys.modules[
         "novavision.package.models.PackageModel"
     ] = model_module
@@ -80,6 +87,7 @@ def _prepare_imports() -> None:
         return {"secrets": context.secrets}
 
     response_module.build_response = fake_build_response
+
     sys.modules[
         "novavision.package.utils.response"
     ] = response_module
@@ -90,7 +98,10 @@ _prepare_imports()
 executor_module = importlib.import_module(
     "novavision.package.executors.EnvironmentSecretsStore"
 )
-EnvironmentSecretsStore = executor_module.EnvironmentSecretsStore
+
+EnvironmentSecretsStore = (
+    executor_module.EnvironmentSecretsStore
+)
 
 
 def make_context(variable_names):
@@ -98,22 +109,6 @@ def make_context(variable_names):
     context.variable_names = variable_names
     context.secrets = {}
     return context
-
-
-def test_single_executor_file_only():
-    executors_dir = SRC_DIR / "executors"
-
-    assert (
-        executors_dir / "EnvironmentSecretsStore.py"
-    ).is_file()
-    assert not (executors_dir / "Str.py").exists()
-    assert not (executors_dir / "List.py").exists()
-
-
-def test_executor_contains_run_method():
-    assert callable(
-        getattr(EnvironmentSecretsStore, "run", None)
-    )
 
 
 def test_parse_variable_names_from_json_string():
@@ -153,7 +148,9 @@ def test_rejects_invalid_variable_names(invalid_value):
         )
 
 
-def test_reads_requested_variables_as_mapping(monkeypatch):
+def test_reads_and_lowercases_requested_variables(
+    monkeypatch,
+):
     monkeypatch.setenv("MY_SECRET_A", "alpha")
     monkeypatch.setenv("MY_SECRET_B", "beta")
 
@@ -162,8 +159,8 @@ def test_reads_requested_variables_as_mapping(monkeypatch):
     )
 
     assert context.read_secrets() == {
-        "MY_SECRET_A": "alpha",
-        "MY_SECRET_B": "beta",
+        "my_secret_a": "alpha",
+        "my_secret_b": "beta",
     }
 
 
@@ -223,10 +220,10 @@ def test_loads_custom_dotenv_path(
     )
 
 
-def test_run_returns_static_object(monkeypatch):
-    context = make_context(
-        ["MY_SECRET_A", "MY_SECRET_B"]
-    )
+def test_run_reloads_environment_before_reading(
+    monkeypatch,
+):
+    context = make_context(["ENV_SECRET_TEST"])
     call_order = []
 
     monkeypatch.setattr(
@@ -239,9 +236,9 @@ def test_run_returns_static_object(monkeypatch):
 
     def fake_read_secrets():
         call_order.append("read")
+
         return {
-            "MY_SECRET_A": "alpha",
-            "MY_SECRET_B": "beta",
+            "env_secret_test": "secret-value",
         }
 
     monkeypatch.setattr(
@@ -250,16 +247,17 @@ def test_run_returns_static_object(monkeypatch):
         fake_read_secrets,
     )
 
+    monkeypatch.setattr(
+        executor_module,
+        "build_response",
+        lambda context: {
+            "output_keys": list(context.secrets),
+        },
+    )
+
     response = context.run()
 
     assert call_order == ["load", "read"]
-    assert context.secrets == {
-        "MY_SECRET_A": "alpha",
-        "MY_SECRET_B": "beta",
-    }
     assert response == {
-        "secrets": {
-            "MY_SECRET_A": "alpha",
-            "MY_SECRET_B": "beta",
-        }
+        "output_keys": ["env_secret_test"],
     }

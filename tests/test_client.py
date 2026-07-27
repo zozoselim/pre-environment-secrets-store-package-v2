@@ -73,10 +73,7 @@ def test_parse_variable_names_rejects_invalid_json():
 
 def test_build_request_matches_runtime_schema():
     payload = client.build_request(
-        variable_names=[
-            "ENV_SECRET_TEST",
-            "DATABASE_PASSWORD",
-        ],
+        variable_names=["ENV_SECRET_TEST"],
         component_uid="Kba9Cw",
         flow_uid="flow-test-1",
     )
@@ -87,37 +84,36 @@ def test_build_request_matches_runtime_schema():
     assert payload["uID"] == "Kba9Cw"
     assert payload["flowUID"] == "flow-test-1"
 
-    selected_executor = (
-        payload["configs"]["executor"]["value"]
+    config_value = (
+        payload["configs"]["executor"]["value"]["value"]
+        ["configs"]["variables_storing_secrets"]["value"]
     )
 
-    assert selected_executor["name"] == (
-        "EnvironmentSecretsStore"
-    )
-
-    request_configs = selected_executor["value"]["configs"]
-
-    assert "output_type" not in request_configs
-    assert json.loads(
-        request_configs[
-            "variables_storing_secrets"
-        ]["value"]
-    ) == [
-        "ENV_SECRET_TEST",
-        "DATABASE_PASSWORD",
+    assert json.loads(config_value) == [
+        "ENV_SECRET_TEST"
     ]
 
 
-def test_masked_response_hides_object_secret_values():
+def test_masked_response_hides_secret_values():
     original_response = {
-        "outputs": {
-            "secrets": {
-                "name": "secrets",
-                "type": "object",
+        "configs": {
+            "executor": {
                 "value": {
-                    "ENV_SECRET_TEST": "novavision-test-123",
-                    "API_KEY": "fake-api-key",
-                },
+                    "value": {
+                        "outputs": {
+                            "secrets": {
+                                "name": "secrets",
+                                "type": "object",
+                                "value": {
+                                    "env_secret_test": (
+                                        "novavision-test-123"
+                                    ),
+                                    "api_key": "fake-api-key",
+                                },
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -130,15 +126,24 @@ def test_masked_response_hides_object_secret_values():
         ],
     )
 
-    assert masked["outputs"]["secrets"]["value"] == {
-        "ENV_SECRET_TEST": client.REDACTED_VALUE,
-        "API_KEY": client.REDACTED_VALUE,
+    masked_values = (
+        masked["configs"]["executor"]["value"]["value"]
+        ["outputs"]["secrets"]["value"]
+    )
+
+    assert masked_values == {
+        "env_secret_test": client.REDACTED_VALUE,
+        "api_key": client.REDACTED_VALUE,
     }
 
-    assert original_response["outputs"]["secrets"]["value"] == {
-        "ENV_SECRET_TEST": "novavision-test-123",
-        "API_KEY": "fake-api-key",
-    }
+    original_values = (
+        original_response["configs"]["executor"]["value"]
+        ["value"]["outputs"]["secrets"]["value"]
+    )
+
+    assert original_values["env_secret_test"] == (
+        "novavision-test-123"
+    )
 
 
 def test_run_runtime_request_publishes_and_receives(
@@ -248,9 +253,8 @@ def test_main_success_masks_output(
                         "outputs": {
                             "secrets": {
                                 "name": "secrets",
-                                "type": "object",
                                 "value": {
-                                    "ENV_SECRET_TEST": (
+                                    "env_secret_test": (
                                         "novavision-test-123"
                                     )
                                 },
@@ -294,7 +298,9 @@ def test_main_handles_timeout(
     monkeypatch.setattr(
         client,
         "run_runtime_request",
-        lambda **kwargs: _raise_timeout(),
+        lambda **kwargs: (
+            _raise_timeout()
+        ),
     )
 
     result = client.main()

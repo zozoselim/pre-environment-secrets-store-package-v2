@@ -18,9 +18,11 @@ sys.path.append(
 from sdks.novavision.src.base.component import Component
 
 if __package__:
+    # Clean install veya Python package olarak import edildiğinde.
     from ..models.PackageModel import PackageModel
     from ..utils.response import build_response
 else:
+    # NovaVision executor dosyayı doğrudan çalıştırdığında.
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         PackageModel,
     )
@@ -35,7 +37,10 @@ class EnvironmentSecretsStore(Component):
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
 
+        # NovaVision normally injects environment variables into the container.
+        # Loading mounted dotenv files as a fallback also supports local tests.
         self.load_runtime_environment()
+
         self.request.model = PackageModel(**self.request.data)
 
         raw_variable_names = self.request.get_param(
@@ -60,9 +65,14 @@ class EnvironmentSecretsStore(Component):
         if custom_path:
             yield Path(custom_path)
 
-        # NovaVision runtime paths.
+        # Paths used by the NovaVision runtime/SDK.
+        # Paths used by the NovaVision runtime/SDK.
         yield Path("/opt/app/.env")
+
+        # NovaVision /opt/app/.env dosyasını yeniden oluşturabildiği için
+        # secret değerleri kalıcı olan ayrı dosyadan da yüklenir.
         yield Path("/opt/app/environment-secrets-store.env")
+
         yield Path("/storage/environment-secrets-store.env")
         yield Path("/opt/novavision/.env")
 
@@ -75,7 +85,6 @@ class EnvironmentSecretsStore(Component):
         """Load available dotenv files while preserving injected variables."""
 
         loaded_paths = set()
-
         for dotenv_path in cls.candidate_dotenv_paths():
             resolved_path = dotenv_path.expanduser()
             path_key = str(resolved_path)
@@ -122,7 +131,6 @@ class EnvironmentSecretsStore(Component):
                 )
 
             cleaned_name = variable_name.strip()
-
             if not cleaned_name:
                 raise ValueError(
                     "Environment variable names cannot be empty."
@@ -141,7 +149,7 @@ class EnvironmentSecretsStore(Component):
         return cleaned_names
 
     def read_secrets(self) -> Dict[str, str]:
-        """Read requested values and keep their environment variable names."""
+        """Read requested variables without logging or hardcoding values."""
 
         secrets: Dict[str, str] = {}
         missing_variables: List[str] = []
@@ -153,7 +161,7 @@ class EnvironmentSecretsStore(Component):
                 missing_variables.append(variable_name)
                 continue
 
-            secrets[variable_name] = variable_value
+            secrets[variable_name.lower()] = variable_value
 
         if missing_variables:
             raise RuntimeError(
@@ -164,8 +172,8 @@ class EnvironmentSecretsStore(Component):
         return secrets
 
     def run(self):
-        """Read secrets and return them through one static object output."""
-
+        # NovaVision may create or update /opt/app/.env after the worker starts.
+        # Reload supported dotenv files before every flow execution.
         self.load_runtime_environment()
         self.secrets = self.read_secrets()
         return build_response(context=self)

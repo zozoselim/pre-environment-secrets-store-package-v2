@@ -3,6 +3,7 @@
 from sdks.novavision.src.helper.package import PackageHelper
 
 if __package__:
+    # Clean install veya package import sırasında.
     from ..models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
@@ -13,6 +14,7 @@ if __package__:
         SecretsOutput,
     )
 else:
+    # NovaVision dosyayı doğrudan runtime içinde çalıştırdığında.
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
@@ -25,7 +27,7 @@ else:
 
 
 def build_response(context):
-    """Build the single static object response."""
+    """Build a response containing requested secrets as an object output."""
 
     secrets_output = SecretsOutput(
         value=context.secrets,
