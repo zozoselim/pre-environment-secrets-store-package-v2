@@ -6,27 +6,21 @@ if __package__:
     from ..models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
-        ListOutputs,
-        ListResponse,
+        EnvironmentSecretsStoreOutputs,
+        EnvironmentSecretsStoreResponse,
         PackageConfigs,
         PackageModel,
-        SecretStringOutput,
-        SecretsListOutput,
-        StrOutputs,
-        StrResponse,
+        SecretsOutput,
     )
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
-        ListOutputs,
-        ListResponse,
+        EnvironmentSecretsStoreOutputs,
+        EnvironmentSecretsStoreResponse,
         PackageConfigs,
         PackageModel,
-        SecretStringOutput,
-        SecretsListOutput,
-        StrOutputs,
-        StrResponse,
+        SecretsOutput,
     )
 
 
@@ -34,34 +28,58 @@ def _build_package(context, response):
     component_executor = EnvironmentSecretsStoreExecutor(
         value=response,
     )
-    executor = ConfigExecutor(value=component_executor)
-    package_configs = PackageConfigs(executor=executor)
+
+    executor = ConfigExecutor(
+        value=component_executor,
+    )
+
+    package_configs = PackageConfigs(
+        executor=executor,
+    )
+
     package_helper = PackageHelper(
         packageModel=PackageModel,
         packageConfigs=package_configs,
     )
+
     return package_helper.build_model(context)
 
 
 def build_response_str(context):
     """Build a response containing one secret as a string."""
 
-    secrets_output = SecretStringOutput(
+    secrets_output = SecretsOutput(
         value=context.secret_value,
+        type="string",
     )
-    response = StrResponse(
-        outputs=StrOutputs(secrets=secrets_output),
+
+    response = EnvironmentSecretsStoreResponse(
+        outputs=EnvironmentSecretsStoreOutputs(
+            secrets=secrets_output,
+        ),
     )
-    return _build_package(context=context, response=response)
+
+    return _build_package(
+        context=context,
+        response=response,
+    )
 
 
 def build_response_list(context):
     """Build a response containing secrets as an ordered list."""
 
-    secrets_output = SecretsListOutput(
+    secrets_output = SecretsOutput(
         value=context.secret_values,
+        type="object",
     )
-    response = ListResponse(
-        outputs=ListOutputs(secrets=secrets_output),
+
+    response = EnvironmentSecretsStoreResponse(
+        outputs=EnvironmentSecretsStoreOutputs(
+            secrets=secrets_output,
+        ),
     )
-    return _build_package(context=context, response=response)
+
+    return _build_package(
+        context=context,
+        response=response,
+    )

@@ -19,7 +19,10 @@ from sdks.novavision.src.base.component import Component
 
 if __package__:
     from ..models.PackageModel import PackageModel
-    from ..utils.response import build_response_list, build_response_str
+    from ..utils.response import (
+        build_response_list,
+        build_response_str,
+    )
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         PackageModel,
@@ -55,15 +58,21 @@ class EnvironmentSecretsStore(Component):
             self.output_type = getattr(
                 self.output_type,
                 "value",
-                getattr(self.output_type, "name", self.output_type),
+                getattr(
+                    self.output_type,
+                    "name",
+                    self.output_type,
+                ),
             )
 
         raw_variable_names = self.request.get_param(
             "variables_storing_secrets"
         )
+
         self.variable_names = self.parse_variable_names(
             raw_variable_names
         )
+
         self.secret_values: List[str] = []
 
     @staticmethod
@@ -72,11 +81,12 @@ class EnvironmentSecretsStore(Component):
 
     @staticmethod
     def candidate_dotenv_paths() -> Iterable[Path]:
-        """Return supported dotenv locations without exposing their contents."""
+        """Return supported dotenv locations without exposing contents."""
 
         custom_path = os.getenv(
             "ENVIRONMENT_SECRETS_STORE_DOTENV_PATH"
         )
+
         if custom_path:
             yield Path(custom_path)
 
@@ -92,41 +102,57 @@ class EnvironmentSecretsStore(Component):
 
     @classmethod
     def load_runtime_environment(cls) -> None:
-        """Load available dotenv files while preserving injected variables."""
+        """Load dotenv files while preserving injected variables."""
 
         loaded_paths = set()
+
         for dotenv_path in cls.candidate_dotenv_paths():
             resolved_path = dotenv_path.expanduser()
             path_key = str(resolved_path)
 
-            if path_key in loaded_paths or not resolved_path.is_file():
+            if path_key in loaded_paths:
+                continue
+
+            if not resolved_path.is_file():
                 continue
 
             load_dotenv(
                 dotenv_path=resolved_path,
                 override=False,
             )
+
             loaded_paths.add(path_key)
 
     @staticmethod
-    def parse_variable_names(raw_variable_names) -> List[str]:
+    def parse_variable_names(
+        raw_variable_names,
+    ) -> List[str]:
         """Parse the UI value into a validated list of variable names."""
 
         if isinstance(raw_variable_names, list):
             variable_names = raw_variable_names
+
         elif isinstance(raw_variable_names, str):
             try:
-                variable_names = json.loads(raw_variable_names)
+                variable_names = json.loads(
+                    raw_variable_names
+                )
             except json.JSONDecodeError as error:
                 raise ValueError(
                     "variables_storing_secrets must be a valid JSON list."
                 ) from error
+
         else:
             raise ValueError(
                 "variables_storing_secrets must be a JSON list."
             )
 
-        if not isinstance(variable_names, list) or not variable_names:
+        if not isinstance(variable_names, list):
+            raise ValueError(
+                "variables_storing_secrets must be a JSON list."
+            )
+
+        if not variable_names:
             raise ValueError(
                 "variables_storing_secrets must contain at least one name."
             )
@@ -141,12 +167,14 @@ class EnvironmentSecretsStore(Component):
                 )
 
             cleaned_name = variable_name.strip()
+
             if not cleaned_name:
                 raise ValueError(
                     "Environment variable names cannot be empty."
                 )
 
             output_name = cleaned_name.lower()
+
             if output_name in seen_output_names:
                 raise ValueError(
                     "Environment variable names must be unique after "
@@ -199,13 +227,21 @@ class EnvironmentSecretsStore(Component):
 
         if self.output_type == "Str":
             self.secret_value = self.read_single_secret()
-            return build_response_str(context=self)
+
+            return build_response_str(
+                context=self,
+            )
 
         if self.output_type == "List":
             self.secret_values = self.read_secret_values()
-            return build_response_list(context=self)
 
-        raise ValueError("Output type must be Str or List.")
+            return build_response_list(
+                context=self,
+            )
+
+        raise ValueError(
+            "Output type must be Str or List."
+        )
 
 
 if __name__ == "__main__":

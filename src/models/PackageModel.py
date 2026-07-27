@@ -1,6 +1,6 @@
 import json
 import re
-from typing import List, Literal, Union
+from typing import Any, List, Literal, Union
 
 from pydantic import Field, validator
 
@@ -129,6 +129,7 @@ class VariablesStoringSecrets(Config):
                 )
 
             output_name = cleaned_name.lower()
+
             if output_name in seen_output_names:
                 raise ValueError(
                     "Environment variable names must remain unique after "
@@ -152,23 +153,12 @@ class VariablesStoringSecrets(Config):
         }
 
 
-class SecretStringOutput(Output):
-    """Single secret value returned as a string."""
+class SecretsOutput(Output):
+    """Secret value returned as either a string or an ordered list."""
 
     name: Literal["secrets"] = "secrets"
-    value: str
-    type: Literal["string"] = "string"
-
-    class Config:
-        title = "Secret"
-
-
-class SecretsListOutput(Output):
-    """Secret values returned as an ordered list of strings."""
-
-    name: Literal["secrets"] = "secrets"
-    value: List[str]
-    type: Literal["object"] = "object"
+    value: Any
+    type: Literal["string", "object"]
 
     class Config:
         title = "Secrets"
@@ -189,31 +179,24 @@ class EnvironmentSecretsStoreRequest(Request):
         }
 
 
-class StrOutputs(Outputs):
-    secrets: SecretStringOutput
+class EnvironmentSecretsStoreOutputs(Outputs):
+    secrets: SecretsOutput
 
 
-class ListOutputs(Outputs):
-    secrets: SecretsListOutput
-
-
-class StrResponse(Response):
-    outputs: StrOutputs
-
-
-class ListResponse(Response):
-    outputs: ListOutputs
+class EnvironmentSecretsStoreResponse(Response):
+    outputs: EnvironmentSecretsStoreOutputs
 
 
 class EnvironmentSecretsStoreExecutor(Config):
     name: Literal[
         "EnvironmentSecretsStore"
     ] = "EnvironmentSecretsStore"
+
     value: Union[
         EnvironmentSecretsStoreRequest,
-        StrResponse,
-        ListResponse,
+        EnvironmentSecretsStoreResponse,
     ]
+
     type: Literal["object"] = "object"
     field: Literal["option"] = "option"
 
