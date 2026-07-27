@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, List, Literal, Union
+from typing import List, Literal, Union
 
 from pydantic import Field, validator
 
@@ -23,47 +23,6 @@ class EmptyInputs(Inputs):
     """Environment Secrets Store does not require workflow input."""
 
     pass
-
-
-class OutputTypeStr(Config):
-    name: Literal["Str"] = "Str"
-    value: Literal["Str"] = "Str"
-    type: Literal["string"] = "string"
-    field: Literal["option"] = "option"
-
-    class Config:
-        title = "Str"
-
-
-class OutputTypeList(Config):
-    name: Literal["List"] = "List"
-    value: Literal["List"] = "List"
-    type: Literal["string"] = "string"
-    field: Literal["option"] = "option"
-
-    class Config:
-        title = "List"
-
-
-class OutputType(Config):
-    """Select the payload type without changing the executor."""
-
-    name: Literal["output_type"] = "output_type"
-    value: Union[OutputTypeStr, OutputTypeList]
-    type: Literal["object"] = "object"
-    field: Literal[
-        "dependentDropdownlist"
-    ] = "dependentDropdownlist"
-    restart: Literal[True] = True
-
-    class Config:
-        title = "Output Type"
-        json_schema_extra = {
-            "shortDescription": (
-                "Str returns one secret as a string. List returns all "
-                "requested secret values in configuration order."
-            )
-        }
 
 
 class VariablesStoringSecrets(Config):
@@ -129,7 +88,6 @@ class VariablesStoringSecrets(Config):
                 )
 
             output_name = cleaned_name.lower()
-
             if output_name in seen_output_names:
                 raise ValueError(
                     "Environment variable names must remain unique after "
@@ -153,25 +111,39 @@ class VariablesStoringSecrets(Config):
         }
 
 
-class SecretsOutput(Output):
-    """Secret value returned as either a string or an ordered list."""
+class SecretStringOutput(Output):
+    """Single secret value returned as a string."""
 
     name: Literal["secrets"] = "secrets"
-    value: Any
-    type: Literal["string", "object"]
+    value: str
+    type: Literal["string"] = "string"
+
+    class Config:
+        title = "Secret"
+
+
+class SecretsListOutput(Output):
+    """Secret values returned as an ordered list of strings."""
+
+    name: Literal["secrets"] = "secrets"
+    value: List[str]
+    type: Literal["object"] = "object"
 
     class Config:
         title = "Secrets"
 
 
-class EnvironmentSecretsStoreConfigs(Configs):
-    output_type: OutputType
+class StrConfigs(Configs):
     variables_storing_secrets: VariablesStoringSecrets
 
 
-class EnvironmentSecretsStoreRequest(Request):
+class ListConfigs(Configs):
+    variables_storing_secrets: VariablesStoringSecrets
+
+
+class StrRequest(Request):
     inputs: EmptyInputs = Field(default_factory=EmptyInputs)
-    configs: EnvironmentSecretsStoreConfigs
+    configs: StrConfigs
 
     class Config:
         json_schema_extra = {
@@ -179,29 +151,55 @@ class EnvironmentSecretsStoreRequest(Request):
         }
 
 
-class EnvironmentSecretsStoreOutputs(Outputs):
-    secrets: SecretsOutput
+class ListRequest(Request):
+    inputs: EmptyInputs = Field(default_factory=EmptyInputs)
+    configs: ListConfigs
+
+    class Config:
+        json_schema_extra = {
+            "target": "configs",
+        }
 
 
-class EnvironmentSecretsStoreResponse(Response):
-    outputs: EnvironmentSecretsStoreOutputs
+class StrOutputs(Outputs):
+    secrets: SecretStringOutput
 
 
-class EnvironmentSecretsStoreExecutor(Config):
-    name: Literal[
-        "EnvironmentSecretsStore"
-    ] = "EnvironmentSecretsStore"
+class ListOutputs(Outputs):
+    secrets: SecretsListOutput
 
-    value: Union[
-        EnvironmentSecretsStoreRequest,
-        EnvironmentSecretsStoreResponse,
-    ]
 
+class StrResponse(Response):
+    outputs: StrOutputs
+
+
+class ListResponse(Response):
+    outputs: ListOutputs
+
+
+class StrExecutor(Config):
+    name: Literal["Str"] = "Str"
+    value: Union[StrRequest, StrResponse]
     type: Literal["object"] = "object"
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Environment Secrets Store"
+        title = "Str"
+        json_schema_extra = {
+            "target": {
+                "value": 0,
+            }
+        }
+
+
+class ListExecutor(Config):
+    name: Literal["List"] = "List"
+    value: Union[ListRequest, ListResponse]
+    type: Literal["object"] = "object"
+    field: Literal["option"] = "option"
+
+    class Config:
+        title = "List"
         json_schema_extra = {
             "target": {
                 "value": 0,
@@ -210,19 +208,23 @@ class EnvironmentSecretsStoreExecutor(Config):
 
 
 class ConfigExecutor(Config):
-    """Expose one runtime executor for both Str and List output modes."""
+    """Select whether secrets are returned as Str or List."""
 
     name: Literal["ConfigExecutor"] = "ConfigExecutor"
-    value: EnvironmentSecretsStoreExecutor
+    value: Union[StrExecutor, ListExecutor]
     type: Literal["executor"] = "executor"
     field: Literal[
         "dependentDropdownlist"
     ] = "dependentDropdownlist"
+    restart: Literal[True] = True
 
     class Config:
-        title = "Task"
+        title = "Output Type"
         json_schema_extra = {
-            "target": "value",
+            "shortDescription": (
+                "Str returns one secret as a string. List returns all "
+                "requested secret values in configuration order."
+            )
         }
 
 

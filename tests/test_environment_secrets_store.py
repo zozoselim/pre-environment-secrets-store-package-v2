@@ -72,19 +72,6 @@ def _prepare_imports() -> None:
         "novavision.package.models.PackageModel"
     ] = model_module
 
-    response_module = types.ModuleType(
-        "novavision.package.utils.response"
-    )
-    response_module.build_response_str = lambda context: (
-        context.secret_value
-    )
-    response_module.build_response_list = lambda context: (
-        context.secret_values
-    )
-    sys.modules[
-        "novavision.package.utils.response"
-    ] = response_module
-
 
 _prepare_imports()
 
@@ -232,81 +219,3 @@ def test_candidate_paths_include_persistent_storage():
     assert Path(
         "/storage/environment-secrets-store.env"
     ) in paths
-
-
-def test_run_builds_string_response(monkeypatch):
-    context = make_context(["MY_SECRET_A"])
-    context.output_type = "Str"
-
-    monkeypatch.setattr(
-        context,
-        "load_runtime_environment",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        context,
-        "read_single_secret",
-        lambda: "alpha",
-    )
-
-    assert context.run() == "alpha"
-    assert context.secret_value == "alpha"
-
-
-def test_run_builds_list_response(monkeypatch):
-    context = make_context(["MY_SECRET_A", "MY_SECRET_B"])
-    context.output_type = "List"
-
-    monkeypatch.setattr(
-        context,
-        "load_runtime_environment",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        context,
-        "read_secret_values",
-        lambda: ["alpha", "beta"],
-    )
-
-    assert context.run() == ["alpha", "beta"]
-    assert context.secret_values == ["alpha", "beta"]
-
-
-def test_single_executor_files_only():
-    executors_dir = SRC_DIR / "executors"
-
-    assert (executors_dir / "EnvironmentSecretsStore.py").is_file()
-    assert not (executors_dir / "Str.py").exists()
-    assert not (executors_dir / "List.py").exists()
-
-
-def test_init_reads_output_type_from_request(monkeypatch):
-    class SelectedOutputType:
-        value = "List"
-
-    class OutputTypeConfig:
-        value = SelectedOutputType()
-
-    class FakeRequest:
-        data = {}
-
-        def get_param(self, name):
-            values = {
-                "output_type": OutputTypeConfig(),
-                "variables_storing_secrets": '["SECRET_A"]',
-            }
-            return values[name]
-
-    monkeypatch.setattr(
-        EnvironmentSecretsStore,
-        "load_runtime_environment",
-        classmethod(lambda cls: None),
-    )
-
-    context = EnvironmentSecretsStore(
-        request=FakeRequest(),
-        bootstrap={},
-    )
-
-    assert context.output_type == "List"
-    assert context.variable_names == ["SECRET_A"]

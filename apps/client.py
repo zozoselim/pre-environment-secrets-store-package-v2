@@ -84,7 +84,7 @@ def build_request(
     flow_uid: str,
     output_type: str = "Str",
 ) -> Dict[str, Any]:
-    """Build a request for the single EnvironmentSecretsStore executor."""
+    """Build a request matching NovaVision's runtime node schema."""
 
     selected_output_type = parse_output_type(output_type)
 
@@ -100,35 +100,25 @@ def build_request(
             "executor": {
                 "name": "ConfigExecutor",
                 "value": {
-                    "name": "EnvironmentSecretsStore",
+                    "name": selected_output_type,
                     "value": {
-                        "name": "EnvironmentSecretsStore",
+                        "name": selected_output_type,
                         "inputs": {
-                            "name": "EnvironmentSecretsStore",
+                            "name": selected_output_type,
                         },
                         "configs": {
-                            "output_type": {
-                                "name": "output_type",
-                                "value": {
-                                    "name": selected_output_type,
-                                    "value": selected_output_type,
-                                    "type": "string",
-                                    "field": "option",
-                                },
-                                "type": "object",
-                                "field": "dependentDropdownlist",
-                                "restart": True,
-                            },
                             "variables_storing_secrets": {
                                 "name": "variables_storing_secrets",
-                                "value": json.dumps(variable_names),
+                                "value": json.dumps(
+                                    variable_names
+                                ),
                                 "type": "string",
                                 "field": "textInput",
                                 "placeHolder": (
                                     '["OPENAI_API_KEY", '
                                     '"DATABASE_PASSWORD"]'
                                 ),
-                            },
+                            }
                         },
                     },
                     "type": "object",

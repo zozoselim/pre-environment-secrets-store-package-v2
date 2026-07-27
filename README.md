@@ -4,7 +4,7 @@ Environment Secrets Store is a NovaVision workflow component that retrieves expl
 
 ## Output Type
 
-The component uses one `EnvironmentSecretsStore` executor. Its **Output Type** configuration selects the returned value shape:
+The component now provides an **Output Type** selector like the Text Input component:
 
 - **Str**: Returns one secret value as a string.
 - **List**: Returns all requested secret values as a list, in the same order as `variables_storing_secrets`.
@@ -64,11 +64,13 @@ For the current NovaVision local deployment, `/storage/environment-secrets-store
 ```text
 src/
   executors/
-    EnvironmentSecretsStore.py  # single runtime executor with run()
+    EnvironmentSecretsStore.py  # shared secret-loading logic
+    Str.py                       # string output executor
+    List.py                      # list output executor
   models/
-    PackageModel.py              # output type selector and response schemas
+    PackageModel.py              # Str/List UI and response schemas
   utils/
-    response.py                  # Str/List response builders
+    response.py                  # response builders
 ```
 
 ## Package image
@@ -128,10 +130,11 @@ pytest -q
 
 1. Add the Environment Secrets Store package.
 2. Keep the package linked to the Open CV image.
-3. Select `Str` or `List` from **Output Type** inside the executor configuration.
+3. Select `Str` or `List` from **Output Type**.
 4. Set `variables_storing_secrets`.
-5. Run the flow and connect the output to a compatible downstream component.
+5. Save and redeploy/restart when the output executor changes.
+6. Run the flow and connect the output to a compatible downstream component.
 
 ## Compatibility note
 
-`Str` and `List` are output modes, not separate executor files. Both modes are handled by `EnvironmentSecretsStore.run()`.
+The original object output mapped lowercase variable names to values. This revision intentionally changes the output contract to selectable `Str` or `List` modes, following the Text Input package pattern.
