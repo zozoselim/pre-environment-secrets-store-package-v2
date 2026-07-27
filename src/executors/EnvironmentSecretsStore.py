@@ -1,10 +1,10 @@
-"""Shared runtime logic for Environment Secrets Store executors."""
+"""Runtime executor for the Environment Secrets Store component."""
 
 import json
 import os
 import sys
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Union
 
 from dotenv import load_dotenv
 
@@ -19,9 +19,13 @@ from sdks.novavision.src.base.component import Component
 
 if __package__:
     from ..models.PackageModel import PackageModel
+    from ..utils.response import build_response
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         PackageModel,
+    )
+    from components.EnvironmentSecretsStore.src.utils.response import (
+        build_response,
     )
 
 
@@ -34,13 +38,15 @@ class EnvironmentSecretsStore(Component):
         self.load_runtime_environment()
         self.request.model = PackageModel(**self.request.data)
 
+        self.output_type = self.request.get_param("output_type")
+
         raw_variable_names = self.request.get_param(
             "variables_storing_secrets"
         )
         self.variable_names = self.parse_variable_names(
             raw_variable_names
         )
-        self.secret_values: List[str] = []
+        self.secrets: Union[str, List[str], None] = None
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
@@ -71,6 +77,7 @@ class EnvironmentSecretsStore(Component):
         """Load available dotenv files while preserving injected variables."""
 
         loaded_paths = set()
+
         for dotenv_path in cls.candidate_dotenv_paths():
             resolved_path = dotenv_path.expanduser()
             path_key = str(resolved_path)
@@ -117,12 +124,14 @@ class EnvironmentSecretsStore(Component):
                 )
 
             cleaned_name = variable_name.strip()
+
             if not cleaned_name:
                 raise ValueError(
                     "Environment variable names cannot be empty."
                 )
 
             output_name = cleaned_name.lower()
+
             if output_name in seen_output_names:
                 raise ValueError(
                     "Environment variable names must be unique after "
@@ -157,13 +166,33 @@ class EnvironmentSecretsStore(Component):
 
         return secret_values
 
-    def read_single_secret(self) -> str:
-        """Read exactly one secret for Str output mode."""
+    def run(self):
+        """Read secrets and return the selected Str or List output."""
 
-        if len(self.variable_names) != 1:
+        self.load_runtime_environment()
+        secret_values = self.read_secret_values()
+
+        if self.output_type == "Str":
+            if len(secret_values) != 1:
+                raise ValueError(
+                    "Str output requires exactly one environment variable "
+                    "name. Select List when requesting multiple secrets."
+                )
+
+            self.secrets = secret_values[0]
+
+        elif self.output_type == "List":
+            self.secrets = secret_values
+
+        else:
             raise ValueError(
-                "Str output requires exactly one environment variable name. "
-                "Select List when requesting multiple secrets."
+                "Output type must be Str or List."
             )
 
-        return self.read_secret_values()[0]
+        return build_response(context=self)
+
+
+if __name__ == "__main__":
+    from sdks.novavision.src.helper.executor import Executor
+
+    Executor(sys.argv[1]).run()

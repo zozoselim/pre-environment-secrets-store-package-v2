@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Set
 DEFAULT_COMPONENT_UID = "Kba9Cw"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 REDACTED_VALUE = "***REDACTED***"
-VALID_OUTPUT_TYPES = {"Str", "List"}
 
 
 def parse_variable_names(raw_value: str) -> List[str]:
@@ -60,8 +59,9 @@ def parse_variable_names(raw_value: str) -> List[str]:
     return cleaned_names
 
 
+
 def parse_output_type(raw_value: str) -> str:
-    """Validate the selected NovaVision executor/output mode."""
+    """Validate the selected secret output mode."""
 
     normalized = raw_value.strip().lower()
     mapping = {
@@ -77,14 +77,13 @@ def parse_output_type(raw_value: str) -> str:
 
     return mapping[normalized]
 
-
 def build_request(
     variable_names: List[str],
     component_uid: str,
     flow_uid: str,
     output_type: str = "Str",
 ) -> Dict[str, Any]:
-    """Build a request matching NovaVision's runtime node schema."""
+    """Build a request matching NovaVision's single-executor schema."""
 
     selected_output_type = parse_output_type(output_type)
 
@@ -100,13 +99,25 @@ def build_request(
             "executor": {
                 "name": "ConfigExecutor",
                 "value": {
-                    "name": selected_output_type,
+                    "name": "EnvironmentSecretsStore",
                     "value": {
-                        "name": selected_output_type,
+                        "name": "EnvironmentSecretsStore",
                         "inputs": {
-                            "name": selected_output_type,
+                            "name": "EnvironmentSecretsStore",
                         },
                         "configs": {
+                            "output_type": {
+                                "name": "output_type",
+                                "value": {
+                                    "name": selected_output_type,
+                                    "value": selected_output_type,
+                                    "type": "string",
+                                    "field": "option",
+                                },
+                                "type": "object",
+                                "field": "dependentDropdownlist",
+                                "restart": True,
+                            },
                             "variables_storing_secrets": {
                                 "name": "variables_storing_secrets",
                                 "value": json.dumps(
@@ -118,7 +129,7 @@ def build_request(
                                     '["OPENAI_API_KEY", '
                                     '"DATABASE_PASSWORD"]'
                                 ),
-                            }
+                            },
                         },
                     },
                     "type": "object",
@@ -227,7 +238,6 @@ def mask_secrets_output(
         )
         for key, nested_value in masked.items()
     }
-
 
 def masked_response(
     response_data: Dict[str, Any],
@@ -415,19 +425,21 @@ def main() -> int:
         variable_names = parse_variable_names(
             raw_variable_names
         )
-        output_type = parse_output_type(raw_output_type)
-
-        payload = build_request(
-            variable_names=variable_names,
-            component_uid=component_uid,
-            flow_uid=f"environment-secrets-client-{uuid.uuid4()}",
-            output_type=output_type,
+        output_type = parse_output_type(
+            raw_output_type
         )
     except ValueError as error:
         print(f"[FAILED] Client configuration error: {error}")
         return 2
 
-    flow_uid = payload["flowUID"]
+    flow_uid = f"environment-secrets-client-{uuid.uuid4()}"
+
+    payload = build_request(
+        variable_names=variable_names,
+        component_uid=component_uid,
+        flow_uid=flow_uid,
+        output_type=output_type,
+    )
 
     try:
         response_data = run_runtime_request(
