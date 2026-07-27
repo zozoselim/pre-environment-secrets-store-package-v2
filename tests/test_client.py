@@ -85,7 +85,17 @@ def test_build_request_matches_runtime_schema():
     assert payload["flowUID"] == "flow-test-1"
 
     selected_executor = payload["configs"]["executor"]["value"]
-    assert selected_executor["name"] == "Str"
+    assert selected_executor["name"] == "EnvironmentSecretsStore"
+    assert selected_executor["value"]["name"] == (
+        "EnvironmentSecretsStore"
+    )
+
+    output_type = (
+        selected_executor["value"]["configs"]
+        ["output_type"]["value"]
+    )
+    assert output_type["name"] == "Str"
+    assert output_type["value"] == "Str"
 
     config_value = (
         selected_executor["value"]
@@ -106,8 +116,14 @@ def test_build_request_supports_list_output():
     )
 
     selected_executor = payload["configs"]["executor"]["value"]
-    assert selected_executor["name"] == "List"
-    assert selected_executor["value"]["name"] == "List"
+    assert selected_executor["name"] == "EnvironmentSecretsStore"
+
+    output_type = (
+        selected_executor["value"]["configs"]
+        ["output_type"]["value"]
+    )
+    assert output_type["name"] == "List"
+    assert output_type["value"] == "List"
 
 
 def test_build_request_rejects_multiple_names_for_str():

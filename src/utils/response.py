@@ -5,35 +5,36 @@ from sdks.novavision.src.helper.package import PackageHelper
 if __package__:
     from ..models.PackageModel import (
         ConfigExecutor,
-        ListExecutor,
+        EnvironmentSecretsStoreExecutor,
         ListOutputs,
         ListResponse,
         PackageConfigs,
         PackageModel,
         SecretStringOutput,
         SecretsListOutput,
-        StrExecutor,
         StrOutputs,
         StrResponse,
     )
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         ConfigExecutor,
-        ListExecutor,
+        EnvironmentSecretsStoreExecutor,
         ListOutputs,
         ListResponse,
         PackageConfigs,
         PackageModel,
         SecretStringOutput,
         SecretsListOutput,
-        StrExecutor,
         StrOutputs,
         StrResponse,
     )
 
 
-def _build_package(context, selected_executor):
-    executor = ConfigExecutor(value=selected_executor)
+def _build_package(context, response):
+    component_executor = EnvironmentSecretsStoreExecutor(
+        value=response,
+    )
+    executor = ConfigExecutor(value=component_executor)
     package_configs = PackageConfigs(executor=executor)
     package_helper = PackageHelper(
         packageModel=PackageModel,
@@ -51,10 +52,7 @@ def build_response_str(context):
     response = StrResponse(
         outputs=StrOutputs(secrets=secrets_output),
     )
-    return _build_package(
-        context=context,
-        selected_executor=StrExecutor(value=response),
-    )
+    return _build_package(context=context, response=response)
 
 
 def build_response_list(context):
@@ -66,7 +64,4 @@ def build_response_list(context):
     response = ListResponse(
         outputs=ListOutputs(secrets=secrets_output),
     )
-    return _build_package(
-        context=context,
-        selected_executor=ListExecutor(value=response),
-    )
+    return _build_package(context=context, response=response)

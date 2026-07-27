@@ -1,4 +1,4 @@
-"""Shared runtime logic for Environment Secrets Store executors."""
+"""NovaVision executor for Environment Secrets Store."""
 
 import json
 import os
@@ -19,9 +19,14 @@ from sdks.novavision.src.base.component import Component
 
 if __package__:
     from ..models.PackageModel import PackageModel
+    from ..utils.response import build_response_list, build_response_str
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         PackageModel,
+    )
+    from components.EnvironmentSecretsStore.src.utils.response import (
+        build_response_list,
+        build_response_str,
     )
 
 
@@ -33,6 +38,25 @@ class EnvironmentSecretsStore(Component):
 
         self.load_runtime_environment()
         self.request.model = PackageModel(**self.request.data)
+
+        self.output_type = self.request.get_param("output_type")
+
+        for _ in range(3):
+            if isinstance(self.output_type, str):
+                break
+
+            if isinstance(self.output_type, dict):
+                self.output_type = self.output_type.get(
+                    "value",
+                    self.output_type.get("name"),
+                )
+                continue
+
+            self.output_type = getattr(
+                self.output_type,
+                "value",
+                getattr(self.output_type, "name", self.output_type),
+            )
 
         raw_variable_names = self.request.get_param(
             "variables_storing_secrets"
@@ -167,3 +191,24 @@ class EnvironmentSecretsStore(Component):
             )
 
         return self.read_secret_values()[0]
+
+    def run(self):
+        """Read secrets and build the selected NovaVision response."""
+
+        self.load_runtime_environment()
+
+        if self.output_type == "Str":
+            self.secret_value = self.read_single_secret()
+            return build_response_str(context=self)
+
+        if self.output_type == "List":
+            self.secret_values = self.read_secret_values()
+            return build_response_list(context=self)
+
+        raise ValueError("Output type must be Str or List.")
+
+
+if __name__ == "__main__":
+    from sdks.novavision.src.helper.executor import Executor
+
+    Executor(sys.argv[1]).run()
