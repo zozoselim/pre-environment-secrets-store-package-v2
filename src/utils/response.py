@@ -25,7 +25,7 @@ else:
 
 
 def build_response(context):
-    """Build the single executor response for Str or List output."""
+    """Build the single static object response."""
 
     secrets_output = SecretsOutput(
         value=context.secrets,

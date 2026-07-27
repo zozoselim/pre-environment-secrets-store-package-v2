@@ -18,12 +18,7 @@ def _register_package(name: str, path: Path) -> None:
 
 
 def _prepare_imports() -> None:
-    """
-    Create the package hierarchy required by the executor.
-
-    NovaVision SDK is supplied by the NovaVision runtime. Unit tests use
-    minimal fake modules so executor logic can also be tested locally.
-    """
+    """Create the minimal package hierarchy required by the executor tests."""
 
     _register_package("novavision", SRC_DIR)
     _register_package("novavision.package", SRC_DIR)
@@ -60,7 +55,6 @@ def _prepare_imports() -> None:
             self.bootstrap_data = bootstrap
 
     component_module.Component = FakeComponent
-
     sys.modules[
         "sdks.novavision.src.base.component"
     ] = component_module
@@ -74,7 +68,6 @@ def _prepare_imports() -> None:
             self.data = data
 
     model_module.PackageModel = FakePackageModel
-
     sys.modules[
         "novavision.package.models.PackageModel"
     ] = model_module
@@ -87,7 +80,6 @@ def _prepare_imports() -> None:
         return {"secrets": context.secrets}
 
     response_module.build_response = fake_build_response
-
     sys.modules[
         "novavision.package.utils.response"
     ] = response_module
@@ -98,17 +90,13 @@ _prepare_imports()
 executor_module = importlib.import_module(
     "novavision.package.executors.EnvironmentSecretsStore"
 )
-
-EnvironmentSecretsStore = (
-    executor_module.EnvironmentSecretsStore
-)
+EnvironmentSecretsStore = executor_module.EnvironmentSecretsStore
 
 
-def make_context(variable_names, output_type="List"):
+def make_context(variable_names):
     context = object.__new__(EnvironmentSecretsStore)
     context.variable_names = variable_names
-    context.output_type = output_type
-    context.secrets = None
+    context.secrets = {}
     return context
 
 
@@ -165,9 +153,7 @@ def test_rejects_invalid_variable_names(invalid_value):
         )
 
 
-def test_reads_requested_variables_in_order(
-    monkeypatch,
-):
+def test_reads_requested_variables_as_mapping(monkeypatch):
     monkeypatch.setenv("MY_SECRET_A", "alpha")
     monkeypatch.setenv("MY_SECRET_B", "beta")
 
@@ -175,10 +161,10 @@ def test_reads_requested_variables_in_order(
         ["MY_SECRET_A", "MY_SECRET_B"]
     )
 
-    assert context.read_secret_values() == [
-        "alpha",
-        "beta",
-    ]
+    assert context.read_secrets() == {
+        "MY_SECRET_A": "alpha",
+        "MY_SECRET_B": "beta",
+    }
 
 
 def test_missing_variable_error_does_not_expose_secret(
@@ -201,7 +187,7 @@ def test_missing_variable_error_does_not_expose_secret(
     )
 
     with pytest.raises(RuntimeError) as error:
-        context.read_secret_values()
+        context.read_secrets()
 
     message = str(error.value)
 
@@ -237,12 +223,9 @@ def test_loads_custom_dotenv_path(
     )
 
 
-def test_run_returns_string_in_str_mode(
-    monkeypatch,
-):
+def test_run_returns_static_object(monkeypatch):
     context = make_context(
-        ["ENV_SECRET_TEST"],
-        output_type="Str",
+        ["MY_SECRET_A", "MY_SECRET_B"]
     )
     call_order = []
 
@@ -254,97 +237,29 @@ def test_run_returns_string_in_str_mode(
         ),
     )
 
-    def fake_read_secret_values():
+    def fake_read_secrets():
         call_order.append("read")
-        return ["secret-value"]
+        return {
+            "MY_SECRET_A": "alpha",
+            "MY_SECRET_B": "beta",
+        }
 
     monkeypatch.setattr(
         context,
-        "read_secret_values",
-        fake_read_secret_values,
+        "read_secrets",
+        fake_read_secrets,
     )
 
     response = context.run()
 
     assert call_order == ["load", "read"]
-    assert context.secrets == "secret-value"
-    assert response == {
-        "secrets": "secret-value",
+    assert context.secrets == {
+        "MY_SECRET_A": "alpha",
+        "MY_SECRET_B": "beta",
     }
-
-
-def test_run_returns_list_in_list_mode(
-    monkeypatch,
-):
-    context = make_context(
-        ["MY_SECRET_A", "MY_SECRET_B"],
-        output_type="List",
-    )
-
-    monkeypatch.setattr(
-        EnvironmentSecretsStore,
-        "load_runtime_environment",
-        classmethod(lambda cls: None),
-    )
-    monkeypatch.setattr(
-        context,
-        "read_secret_values",
-        lambda: ["alpha", "beta"],
-    )
-
-    response = context.run()
-
-    assert context.secrets == ["alpha", "beta"]
     assert response == {
-        "secrets": ["alpha", "beta"],
+        "secrets": {
+            "MY_SECRET_A": "alpha",
+            "MY_SECRET_B": "beta",
+        }
     }
-
-
-def test_str_mode_rejects_multiple_values(
-    monkeypatch,
-):
-    context = make_context(
-        ["MY_SECRET_A", "MY_SECRET_B"],
-        output_type="Str",
-    )
-
-    monkeypatch.setattr(
-        EnvironmentSecretsStore,
-        "load_runtime_environment",
-        classmethod(lambda cls: None),
-    )
-    monkeypatch.setattr(
-        context,
-        "read_secret_values",
-        lambda: ["alpha", "beta"],
-    )
-
-    with pytest.raises(ValueError) as error:
-        context.run()
-
-    assert "exactly one" in str(error.value)
-
-
-def test_run_rejects_unknown_output_type(
-    monkeypatch,
-):
-    context = make_context(
-        ["MY_SECRET_A"],
-        output_type="Unknown",
-    )
-
-    monkeypatch.setattr(
-        EnvironmentSecretsStore,
-        "load_runtime_environment",
-        classmethod(lambda cls: None),
-    )
-    monkeypatch.setattr(
-        context,
-        "read_secret_values",
-        lambda: ["alpha"],
-    )
-
-    with pytest.raises(ValueError) as error:
-        context.run()
-
-    assert "Str or List" in str(error.value)

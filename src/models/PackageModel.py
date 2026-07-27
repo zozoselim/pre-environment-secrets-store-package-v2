@@ -1,6 +1,6 @@
 import json
 import re
-from typing import List, Literal, Union
+from typing import Dict, Literal, Union
 
 from pydantic import Field, validator
 
@@ -23,47 +23,6 @@ class EmptyInputs(Inputs):
     """Environment Secrets Store does not require workflow input."""
 
     pass
-
-
-class OutputTypeStr(Config):
-    name: Literal["Str"] = "Str"
-    value: Literal["Str"] = "Str"
-    type: Literal["string"] = "string"
-    field: Literal["option"] = "option"
-
-    class Config:
-        title = "Str"
-
-
-class OutputTypeList(Config):
-    name: Literal["List"] = "List"
-    value: Literal["List"] = "List"
-    type: Literal["string"] = "string"
-    field: Literal["option"] = "option"
-
-    class Config:
-        title = "List"
-
-
-class OutputType(Config):
-    """Select the output payload type without changing the executor."""
-
-    name: Literal["output_type"] = "output_type"
-    value: Union[OutputTypeStr, OutputTypeList]
-    type: Literal["object"] = "object"
-    field: Literal[
-        "dependentDropdownlist"
-    ] = "dependentDropdownlist"
-    restart: Literal[True] = True
-
-    class Config:
-        title = "Output Type"
-        json_schema_extra = {
-            "shortDescription": (
-                "Str returns one secret as a string. List returns all "
-                "requested secret values in configuration order."
-            )
-        }
 
 
 class VariablesStoringSecrets(Config):
@@ -146,34 +105,23 @@ class VariablesStoringSecrets(Config):
         json_schema_extra = {
             "shortDescription": (
                 "JSON list of environment variable names. Secret values are "
-                "read only at runtime. Str requires one name; List accepts "
-                "one or more names."
+                "read only at runtime and returned inside one secrets object."
             )
         }
 
 
 class SecretsOutput(Output):
-    """Secret value returned as either a string or an ordered list."""
+    """Requested secret values exposed through one static object output."""
 
     name: Literal["secrets"] = "secrets"
-    value: Union[str, List[str]]
-    type: str = "string"
-
-    @validator("type", pre=True, always=True)
-    def set_type_based_on_value(cls, value, values):
-        output_value = values.get("value")
-
-        if isinstance(output_value, list):
-            return "list"
-
-        return "string"
+    value: Dict[str, str]
+    type: Literal["object"] = "object"
 
     class Config:
         title = "Secrets"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):
-    output_type: OutputType
     variables_storing_secrets: VariablesStoringSecrets
 
 
@@ -200,6 +148,7 @@ class EnvironmentSecretsStoreExecutor(Config):
         "EnvironmentSecretsStore"
     ] = "EnvironmentSecretsStore"
 
+    # NovaVision expects one request model and one response model here.
     value: Union[
         PackageRequest,
         PackageResponse,

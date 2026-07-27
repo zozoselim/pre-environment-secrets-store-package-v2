@@ -60,37 +60,12 @@ def parse_variable_names(raw_value: str) -> List[str]:
 
 
 
-def parse_output_type(raw_value: str) -> str:
-    """Validate the selected secret output mode."""
-
-    normalized = raw_value.strip().lower()
-    mapping = {
-        "str": "Str",
-        "string": "Str",
-        "list": "List",
-    }
-
-    if normalized not in mapping:
-        raise ValueError(
-            "ENV_SECRET_OUTPUT_TYPE must be Str or List."
-        )
-
-    return mapping[normalized]
-
 def build_request(
     variable_names: List[str],
     component_uid: str,
     flow_uid: str,
-    output_type: str = "Str",
 ) -> Dict[str, Any]:
     """Build a request matching NovaVision's single-executor schema."""
-
-    selected_output_type = parse_output_type(output_type)
-
-    if selected_output_type == "Str" and len(variable_names) != 1:
-        raise ValueError(
-            "Str output requires exactly one environment variable name."
-        )
 
     return {
         "type": "component",
@@ -106,18 +81,6 @@ def build_request(
                             "name": "EnvironmentSecretsStore",
                         },
                         "configs": {
-                            "output_type": {
-                                "name": "output_type",
-                                "value": {
-                                    "name": selected_output_type,
-                                    "value": selected_output_type,
-                                    "type": "string",
-                                    "field": "option",
-                                },
-                                "type": "object",
-                                "field": "dependentDropdownlist",
-                                "restart": True,
-                            },
                             "variables_storing_secrets": {
                                 "name": "variables_storing_secrets",
                                 "value": json.dumps(
@@ -395,10 +358,6 @@ def main() -> int:
         DEFAULT_COMPONENT_UID,
     ).strip()
 
-    raw_output_type = os.getenv(
-        "ENV_SECRET_OUTPUT_TYPE",
-        "Str",
-    )
 
     try:
         timeout_seconds = float(
@@ -425,9 +384,6 @@ def main() -> int:
         variable_names = parse_variable_names(
             raw_variable_names
         )
-        output_type = parse_output_type(
-            raw_output_type
-        )
     except ValueError as error:
         print(f"[FAILED] Client configuration error: {error}")
         return 2
@@ -438,7 +394,6 @@ def main() -> int:
         variable_names=variable_names,
         component_uid=component_uid,
         flow_uid=flow_uid,
-        output_type=output_type,
     )
 
     try:

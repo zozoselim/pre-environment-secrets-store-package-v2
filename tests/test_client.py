@@ -73,10 +73,12 @@ def test_parse_variable_names_rejects_invalid_json():
 
 def test_build_request_matches_runtime_schema():
     payload = client.build_request(
-        variable_names=["ENV_SECRET_TEST"],
+        variable_names=[
+            "ENV_SECRET_TEST",
+            "DATABASE_PASSWORD",
+        ],
         component_uid="Kba9Cw",
         flow_uid="flow-test-1",
-        output_type="Str",
     )
 
     assert payload["status"] == "success"
@@ -95,65 +97,27 @@ def test_build_request_matches_runtime_schema():
 
     request_configs = selected_executor["value"]["configs"]
 
-    assert (
-        request_configs["output_type"]["value"]["value"]
-        == "Str"
-    )
-
+    assert "output_type" not in request_configs
     assert json.loads(
         request_configs[
             "variables_storing_secrets"
         ]["value"]
-    ) == ["ENV_SECRET_TEST"]
+    ) == [
+        "ENV_SECRET_TEST",
+        "DATABASE_PASSWORD",
+    ]
 
 
-def test_build_request_supports_list_mode():
-    payload = client.build_request(
-        variable_names=["API_KEY", "DATABASE_PASSWORD"],
-        component_uid="Kba9Cw",
-        flow_uid="flow-test-1",
-        output_type="List",
-    )
-
-    request_configs = (
-        payload["configs"]["executor"]["value"]
-        ["value"]["configs"]
-    )
-
-    assert (
-        request_configs["output_type"]["value"]["value"]
-        == "List"
-    )
-
-
-def test_build_request_rejects_multiple_names_in_str_mode():
-    with pytest.raises(ValueError):
-        client.build_request(
-            variable_names=["API_KEY", "DATABASE_PASSWORD"],
-            component_uid="Kba9Cw",
-            flow_uid="flow-test-1",
-            output_type="Str",
-        )
-
-
-def test_masked_response_hides_list_secret_values():
+def test_masked_response_hides_object_secret_values():
     original_response = {
-        "configs": {
-            "executor": {
+        "outputs": {
+            "secrets": {
+                "name": "secrets",
+                "type": "object",
                 "value": {
-                    "value": {
-                        "outputs": {
-                            "secrets": {
-                                "name": "secrets",
-                                "type": "list",
-                                "value": [
-                                    "novavision-test-123",
-                                    "fake-api-key",
-                                ],
-                            }
-                        }
-                    }
-                }
+                    "ENV_SECRET_TEST": "novavision-test-123",
+                    "API_KEY": "fake-api-key",
+                },
             }
         }
     }
@@ -166,46 +130,15 @@ def test_masked_response_hides_list_secret_values():
         ],
     )
 
-    masked_values = (
-        masked["configs"]["executor"]["value"]["value"]
-        ["outputs"]["secrets"]["value"]
-    )
-
-    assert masked_values == [
-        client.REDACTED_VALUE,
-        client.REDACTED_VALUE,
-    ]
-
-    original_values = (
-        original_response["configs"]["executor"]["value"]
-        ["value"]["outputs"]["secrets"]["value"]
-    )
-
-    assert original_values == [
-        "novavision-test-123",
-        "fake-api-key",
-    ]
-
-
-def test_masked_response_hides_string_secret_value():
-    original_response = {
-        "outputs": {
-            "secrets": {
-                "name": "secrets",
-                "type": "string",
-                "value": "novavision-test-123",
-            }
-        }
+    assert masked["outputs"]["secrets"]["value"] == {
+        "ENV_SECRET_TEST": client.REDACTED_VALUE,
+        "API_KEY": client.REDACTED_VALUE,
     }
 
-    masked = client.masked_response(
-        original_response,
-        ["ENV_SECRET_TEST"],
-    )
-
-    assert masked["outputs"]["secrets"]["value"] == (
-        client.REDACTED_VALUE
-    )
+    assert original_response["outputs"]["secrets"]["value"] == {
+        "ENV_SECRET_TEST": "novavision-test-123",
+        "API_KEY": "fake-api-key",
+    }
 
 
 def test_run_runtime_request_publishes_and_receives(
@@ -315,8 +248,9 @@ def test_main_success_masks_output(
                         "outputs": {
                             "secrets": {
                                 "name": "secrets",
+                                "type": "object",
                                 "value": {
-                                    "env_secret_test": (
+                                    "ENV_SECRET_TEST": (
                                         "novavision-test-123"
                                     )
                                 },
@@ -360,9 +294,7 @@ def test_main_handles_timeout(
     monkeypatch.setattr(
         client,
         "run_runtime_request",
-        lambda **kwargs: (
-            _raise_timeout()
-        ),
+        lambda **kwargs: _raise_timeout(),
     )
 
     result = client.main()

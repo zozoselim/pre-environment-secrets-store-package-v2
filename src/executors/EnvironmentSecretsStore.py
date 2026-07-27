@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Iterable, List, Union
+from typing import Dict, Iterable, List
 
 from dotenv import load_dotenv
 
@@ -38,15 +38,13 @@ class EnvironmentSecretsStore(Component):
         self.load_runtime_environment()
         self.request.model = PackageModel(**self.request.data)
 
-        self.output_type = self.request.get_param("output_type")
-
         raw_variable_names = self.request.get_param(
             "variables_storing_secrets"
         )
         self.variable_names = self.parse_variable_names(
             raw_variable_names
         )
-        self.secrets: Union[str, List[str], None] = None
+        self.secrets: Dict[str, str] = {}
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
@@ -131,7 +129,6 @@ class EnvironmentSecretsStore(Component):
                 )
 
             output_name = cleaned_name.lower()
-
             if output_name in seen_output_names:
                 raise ValueError(
                     "Environment variable names must be unique after "
@@ -143,10 +140,10 @@ class EnvironmentSecretsStore(Component):
 
         return cleaned_names
 
-    def read_secret_values(self) -> List[str]:
-        """Read requested secret values in configuration order."""
+    def read_secrets(self) -> Dict[str, str]:
+        """Read requested values and keep their environment variable names."""
 
-        secret_values: List[str] = []
+        secrets: Dict[str, str] = {}
         missing_variables: List[str] = []
 
         for variable_name in self.variable_names:
@@ -156,7 +153,7 @@ class EnvironmentSecretsStore(Component):
                 missing_variables.append(variable_name)
                 continue
 
-            secret_values.append(variable_value)
+            secrets[variable_name] = variable_value
 
         if missing_variables:
             raise RuntimeError(
@@ -164,31 +161,13 @@ class EnvironmentSecretsStore(Component):
                 + ", ".join(missing_variables)
             )
 
-        return secret_values
+        return secrets
 
     def run(self):
-        """Read secrets and return the selected Str or List output."""
+        """Read secrets and return them through one static object output."""
 
         self.load_runtime_environment()
-        secret_values = self.read_secret_values()
-
-        if self.output_type == "Str":
-            if len(secret_values) != 1:
-                raise ValueError(
-                    "Str output requires exactly one environment variable "
-                    "name. Select List when requesting multiple secrets."
-                )
-
-            self.secrets = secret_values[0]
-
-        elif self.output_type == "List":
-            self.secrets = secret_values
-
-        else:
-            raise ValueError(
-                "Output type must be Str or List."
-            )
-
+        self.secrets = self.read_secrets()
         return build_response(context=self)
 
 
