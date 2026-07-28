@@ -11,7 +11,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 
 
-def _register_package(name: str, path: Path) -> None:
+def _register_package(
+    name: str,
+    path: Path,
+) -> None:
+    """Register a minimal Python package for local tests."""
+
     module = types.ModuleType(name)
     module.__path__ = [str(path)]
     sys.modules[name] = module
@@ -21,20 +26,30 @@ def _prepare_imports() -> None:
     """
     Create the package hierarchy required by the executor.
 
-    NovaVision SDK is supplied by the NovaVision runtime. Unit tests use
-    minimal fake modules so executor logic can also be tested locally.
+    NovaVision SDK exists inside the runtime container. Local tests use
+    minimal fake modules that reproduce only the required SDK behavior.
     """
 
-    _register_package("novavision", SRC_DIR)
-    _register_package("novavision.package", SRC_DIR)
+    _register_package(
+        "novavision",
+        SRC_DIR,
+    )
+
+    _register_package(
+        "novavision.package",
+        SRC_DIR,
+    )
+
     _register_package(
         "novavision.package.executors",
         SRC_DIR / "executors",
     )
+
     _register_package(
         "novavision.package.models",
         SRC_DIR / "models",
     )
+
     _register_package(
         "novavision.package.utils",
         SRC_DIR / "utils",
@@ -50,12 +65,49 @@ def _prepare_imports() -> None:
         module.__path__ = []
         sys.modules[module_name] = module
 
+    # ------------------------------------------------------------------
+    # Fake NovaVision Environment
+    # ------------------------------------------------------------------
+
+    environment_module = types.ModuleType(
+        "sdks.novavision.src.base.environment"
+    )
+
+    class FakeEnvironment:
+        """
+        Local replacement for NovaVision's Environment class.
+
+        The real SDK implementation was verified inside the container:
+
+        @staticmethod
+        def get_environment_variable(variable):
+            return os.getenv(variable)
+        """
+
+        @staticmethod
+        def get_environment_variable(variable):
+            return os.getenv(variable)
+
+    environment_module.Environment = FakeEnvironment
+
+    sys.modules[
+        "sdks.novavision.src.base.environment"
+    ] = environment_module
+
+    # ------------------------------------------------------------------
+    # Fake NovaVision Component
+    # ------------------------------------------------------------------
+
     component_module = types.ModuleType(
         "sdks.novavision.src.base.component"
     )
 
     class FakeComponent:
-        def __init__(self, request=None, bootstrap=None):
+        def __init__(
+            self,
+            request=None,
+            bootstrap=None,
+        ):
             self.request = request
             self.bootstrap_data = bootstrap
 
@@ -64,6 +116,10 @@ def _prepare_imports() -> None:
     sys.modules[
         "sdks.novavision.src.base.component"
     ] = component_module
+
+    # ------------------------------------------------------------------
+    # Fake PackageModel
+    # ------------------------------------------------------------------
 
     model_module = types.ModuleType(
         "novavision.package.models.PackageModel"
@@ -79,12 +135,18 @@ def _prepare_imports() -> None:
         "novavision.package.models.PackageModel"
     ] = model_module
 
+    # ------------------------------------------------------------------
+    # Fake response builder
+    # ------------------------------------------------------------------
+
     response_module = types.ModuleType(
         "novavision.package.utils.response"
     )
 
     def fake_build_response(context):
-        return {"secrets": context.secrets}
+        return {
+            "secrets": context.secrets,
+        }
 
     response_module.build_response = fake_build_response
 
@@ -95,6 +157,11 @@ def _prepare_imports() -> None:
 
 _prepare_imports()
 
+
+environment_utils = importlib.import_module(
+    "novavision.package.utils.environment"
+)
+
 executor_module = importlib.import_module(
     "novavision.package.executors.EnvironmentSecretsStore"
 )
@@ -104,15 +171,54 @@ EnvironmentSecretsStore = (
 )
 
 
-def make_context(variable_names):
-    context = object.__new__(EnvironmentSecretsStore)
-    context.variable_names = variable_names
-    context.secrets = {}
-    return context
+class FakeRequest:
+    """Minimal request object used by executor tests."""
+
+    def __init__(self, variable_names):
+        self.data = {
+            "type": "component",
+            "name": "EnvironmentSecretsStore",
+            "configs": {},
+        }
+
+        self.model = None
+
+        self.params = {
+            "variables_storing_secrets": variable_names,
+        }
+
+    def get_param(self, name):
+        return self.params[name]
+
+
+def test_single_executor_file_only():
+    executors_dir = SRC_DIR / "executors"
+
+    assert (
+        executors_dir / "EnvironmentSecretsStore.py"
+    ).is_file()
+
+    assert not (
+        executors_dir / "Str.py"
+    ).exists()
+
+    assert not (
+        executors_dir / "List.py"
+    ).exists()
+
+
+def test_executor_contains_run_method():
+    assert callable(
+        getattr(
+            EnvironmentSecretsStore,
+            "run",
+            None,
+        )
+    )
 
 
 def test_parse_variable_names_from_json_string():
-    result = EnvironmentSecretsStore.parse_variable_names(
+    result = environment_utils.parse_variable_names(
         '["MY_SECRET_A", "MY_SECRET_B"]'
     )
 
@@ -123,11 +229,15 @@ def test_parse_variable_names_from_json_string():
 
 
 def test_parse_variable_names_from_list():
-    result = EnvironmentSecretsStore.parse_variable_names(
-        ["MY_SECRET_A"]
+    result = environment_utils.parse_variable_names(
+        [
+            "MY_SECRET_A",
+        ]
     )
 
-    assert result == ["MY_SECRET_A"]
+    assert result == [
+        "MY_SECRET_A",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -139,26 +249,93 @@ def test_parse_variable_names_from_list():
         '[""]',
         "[123]",
         '["API_KEY", "api_key"]',
+        '["API KEY"]',
+        '["1INVALID_NAME"]',
     ],
 )
-def test_rejects_invalid_variable_names(invalid_value):
+def test_rejects_invalid_variable_names(
+    invalid_value,
+):
     with pytest.raises(ValueError):
-        EnvironmentSecretsStore.parse_variable_names(
+        environment_utils.parse_variable_names(
             invalid_value
         )
 
 
-def test_reads_and_lowercases_requested_variables(
-    monkeypatch,
-):
-    monkeypatch.setenv("MY_SECRET_A", "alpha")
-    monkeypatch.setenv("MY_SECRET_B", "beta")
-
-    context = make_context(
-        ["MY_SECRET_A", "MY_SECRET_B"]
+def test_parse_variable_names_trims_whitespace():
+    result = environment_utils.parse_variable_names(
+        '["  MY_SECRET_A  "]'
     )
 
-    assert context.read_secrets() == {
+    assert result == [
+        "MY_SECRET_A",
+    ]
+
+
+def test_reads_requested_variables_through_sdk(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "MY_SECRET_A",
+        "alpha",
+    )
+
+    monkeypatch.setenv(
+        "MY_SECRET_B",
+        "beta",
+    )
+
+    result = environment_utils.read_secrets(
+        [
+            "MY_SECRET_A",
+            "MY_SECRET_B",
+        ]
+    )
+
+    assert result == {
+        "my_secret_a": "alpha",
+        "my_secret_b": "beta",
+    }
+
+
+def test_read_secrets_uses_environment_sdk(
+    monkeypatch,
+):
+    calls = []
+
+    def fake_get_environment_variable(
+        variable,
+    ):
+        calls.append(variable)
+
+        values = {
+            "MY_SECRET_A": "alpha",
+            "MY_SECRET_B": "beta",
+        }
+
+        return values.get(variable)
+
+    monkeypatch.setattr(
+        environment_utils.Environment,
+        "get_environment_variable",
+        staticmethod(
+            fake_get_environment_variable
+        ),
+    )
+
+    result = environment_utils.read_secrets(
+        [
+            "MY_SECRET_A",
+            "MY_SECRET_B",
+        ]
+    )
+
+    assert calls == [
+        "MY_SECRET_A",
+        "MY_SECRET_B",
+    ]
+
+    assert result == {
         "my_secret_a": "alpha",
         "my_secret_b": "beta",
     }
@@ -171,20 +348,19 @@ def test_missing_variable_error_does_not_expose_secret(
         "PRESENT_SECRET",
         "do-not-print-me",
     )
+
     monkeypatch.delenv(
         "MISSING_SECRET",
         raising=False,
     )
 
-    context = make_context(
-        [
-            "PRESENT_SECRET",
-            "MISSING_SECRET",
-        ]
-    )
-
     with pytest.raises(RuntimeError) as error:
-        context.read_secrets()
+        environment_utils.read_secrets(
+            [
+                "PRESENT_SECRET",
+                "MISSING_SECRET",
+            ]
+        )
 
     message = str(error.value)
 
@@ -192,72 +368,101 @@ def test_missing_variable_error_does_not_expose_secret(
     assert "do-not-print-me" not in message
 
 
-def test_loads_custom_dotenv_path(
-    tmp_path,
+def test_executor_initializes_request_model():
+    request = FakeRequest(
+        '["MY_SECRET_A"]'
+    )
+
+    executor = EnvironmentSecretsStore(
+        request=request,
+        bootstrap={},
+    )
+
+    assert request.model is not None
+
+    assert executor.variable_names == [
+        "MY_SECRET_A",
+    ]
+
+    assert executor.secrets == {}
+
+
+def test_executor_run_reads_secrets_and_builds_response(
     monkeypatch,
 ):
-    dotenv_path = tmp_path / ".env"
-
-    dotenv_path.write_text(
-        "ENV_SECRET_TEST=novavision-test-123\n",
-        encoding="utf-8",
+    request = FakeRequest(
+        '["MY_SECRET_A", "MY_SECRET_B"]'
     )
 
-    monkeypatch.setenv(
-        "ENVIRONMENT_SECRETS_STORE_DOTENV_PATH",
-        str(dotenv_path),
-    )
-    monkeypatch.delenv(
-        "ENV_SECRET_TEST",
-        raising=False,
+    executor = EnvironmentSecretsStore(
+        request=request,
+        bootstrap={},
     )
 
-    EnvironmentSecretsStore.load_runtime_environment()
+    calls = []
 
-    assert (
-        os.getenv("ENV_SECRET_TEST")
-        == "novavision-test-123"
-    )
-
-
-def test_run_reloads_environment_before_reading(
-    monkeypatch,
-):
-    context = make_context(["ENV_SECRET_TEST"])
-    call_order = []
-
-    monkeypatch.setattr(
-        EnvironmentSecretsStore,
-        "load_runtime_environment",
-        classmethod(
-            lambda cls: call_order.append("load")
-        ),
-    )
-
-    def fake_read_secrets():
-        call_order.append("read")
+    def fake_read_secrets(variable_names):
+        calls.append(
+            list(variable_names)
+        )
 
         return {
-            "env_secret_test": "secret-value",
+            "my_secret_a": "alpha",
+            "my_secret_b": "beta",
         }
 
     monkeypatch.setattr(
-        context,
+        executor_module,
         "read_secrets",
         fake_read_secrets,
     )
 
+    response = executor.run()
+
+    assert calls == [
+        [
+            "MY_SECRET_A",
+            "MY_SECRET_B",
+        ]
+    ]
+
+    assert executor.secrets == {
+        "my_secret_a": "alpha",
+        "my_secret_b": "beta",
+    }
+
+    assert response == {
+        "secrets": {
+            "my_secret_a": "alpha",
+            "my_secret_b": "beta",
+        }
+    }
+
+
+def test_executor_run_does_not_expose_secrets_in_logs(
+    monkeypatch,
+    capsys,
+):
+    request = FakeRequest(
+        '["MY_SECRET_A"]'
+    )
+
+    executor = EnvironmentSecretsStore(
+        request=request,
+        bootstrap={},
+    )
+
     monkeypatch.setattr(
         executor_module,
-        "build_response",
-        lambda context: {
-            "output_keys": list(context.secrets),
+        "read_secrets",
+        lambda variable_names: {
+            "my_secret_a": "do-not-print-me",
         },
     )
 
-    response = context.run()
+    executor.run()
 
-    assert call_order == ["load", "read"]
-    assert response == {
-        "output_keys": ["env_secret_test"],
-    }
+    captured = capsys.readouterr()
+
+    assert "do-not-print-me" not in captured.out
+    assert "do-not-print-me" not in captured.err
