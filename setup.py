@@ -15,10 +15,7 @@ setuptools.setup(
         "pre-environment-secrets-store-package-v2"
     ),
     license="MIT",
-    install_requires=[
-        "python-dotenv>=1.0,<2.0",
-        "requests>=2.31,<3.0",
-    ],
+    install_requires=[],
     extras_require={
         "dev": [
             "pytest>=8,<9",

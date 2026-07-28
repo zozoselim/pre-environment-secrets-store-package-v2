@@ -1,17 +1,19 @@
-# Environment Secrets Store
+# Environment Secrets Store v0.4.0
 
-Validates environment-variable names through NovaVision's `Environment` SDK and outputs only a JSON string containing safe references.
+The component validates requested environment variables through
+NovaVision's `Environment` SDK and outputs only their names as a JSON
+string.
 
 Example configuration:
 
 ```json
-["ACCESS_TOKEN", "DATABASE_PASSWORD"]
+["DOCKER_NETWORK"]
 ```
 
 Output:
 
 ```json
-["ACCESS_TOKEN", "DATABASE_PASSWORD"]
+["DOCKER_NETWORK"]
 ```
 
-Secret values are never included in workflow output.
+The actual secret value never enters the workflow output.
