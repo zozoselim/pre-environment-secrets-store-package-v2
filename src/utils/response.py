@@ -10,7 +10,7 @@ if __package__:
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        StatusOutput,
+        SecretContextOutput,
     )
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
@@ -20,16 +20,16 @@ else:
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        StatusOutput,
+        SecretContextOutput,
     )
 
 
 def build_response(context):
-    """Return one non-secret string status output."""
+    """Return one object containing only safe metadata."""
 
     package_outputs = PackageOutputs(
-        message=StatusOutput(
-            value=context.message,
+        secretContext=SecretContextOutput(
+            value=context.secret_context,
         ),
     )
 

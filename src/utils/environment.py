@@ -1,4 +1,4 @@
-"""Environment parsing and access validation helpers."""
+"""Environment parsing and secret-access validation helpers."""
 
 import json
 import re
@@ -15,7 +15,7 @@ _ENV_NAME_PATTERN = re.compile(
 def parse_variable_names(
     raw_variable_names: Union[str, Sequence[str]],
 ) -> List[str]:
-    """Parse and validate configured environment-variable names."""
+    """Parse and validate environment-variable names."""
 
     if isinstance(raw_variable_names, str):
         try:
@@ -71,15 +71,17 @@ def parse_variable_names(
 
 def validate_secret_access(
     variable_names: Sequence[str],
-) -> None:
+) -> List[str]:
     """
-    Verify that all requested secret values exist.
+    Verify that all requested secrets exist.
 
-    Values are never returned, printed, logged, or written to outputs.
+    Only their environment-variable names are returned. Secret values
+    are never returned, printed, logged, or written to workflow output.
     """
 
     environment = Environment()
     missing_variables: List[str] = []
+    references: List[str] = []
 
     for variable_name in variable_names:
         secret_value = (
@@ -93,6 +95,9 @@ def validate_secret_access(
             or not str(secret_value).strip()
         ):
             missing_variables.append(variable_name)
+            continue
+
+        references.append(variable_name)
 
     if missing_variables:
         raise RuntimeError(
@@ -100,3 +105,5 @@ def validate_secret_access(
             "or were empty: "
             + ", ".join(missing_variables)
         )
+
+    return references

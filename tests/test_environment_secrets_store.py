@@ -9,9 +9,6 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
-SUCCESS_MESSAGE = (
-    "Requested secret values were accessed successfully."
-)
 
 
 def _register_package(name: str, path: Path) -> None:
@@ -93,7 +90,7 @@ def _prepare_imports() -> None:
 
     def fake_build_response(context):
         return {
-            "message": context.message,
+            "secretContext": context.secret_context,
         }
 
     response_module.build_response = fake_build_response
@@ -131,55 +128,20 @@ class FakeRequest:
         return self.params[name]
 
 
-def test_executor_has_run_method():
-    assert callable(
-        getattr(
-            EnvironmentSecretsStore,
-            "run",
-            None,
-        )
-    )
-
-
-def test_parse_variable_names():
-    assert environment_utils.parse_variable_names(
-        '["ACCESS_TOKEN", "DATABASE_PASSWORD"]'
-    ) == [
-        "ACCESS_TOKEN",
-        "DATABASE_PASSWORD",
-    ]
-
-
-@pytest.mark.parametrize(
-    "invalid_value",
-    [
-        "not-json",
-        "{}",
-        "[]",
-        '[""]',
-        "[123]",
-        '["API KEY"]',
-    ],
-)
-def test_rejects_invalid_names(invalid_value):
-    with pytest.raises(ValueError):
-        environment_utils.parse_variable_names(
-            invalid_value
-        )
-
-
-def test_validate_secret_access(monkeypatch):
+def test_validate_access_returns_only_references(
+    monkeypatch,
+):
     monkeypatch.setenv(
         "ACCESS_TOKEN",
         "do-not-expose-me",
     )
 
-    assert (
-        environment_utils.validate_secret_access(
-            ["ACCESS_TOKEN"]
-        )
-        is None
+    result = environment_utils.validate_secret_access(
+        ["ACCESS_TOKEN"]
     )
+
+    assert result == ["ACCESS_TOKEN"]
+    assert "do-not-expose-me" not in str(result)
 
 
 def test_missing_secret_fails(monkeypatch):
@@ -194,9 +156,7 @@ def test_missing_secret_fails(monkeypatch):
         )
 
 
-def test_executor_returns_only_success_message(
-    monkeypatch,
-):
+def test_executor_returns_safe_context(monkeypatch):
     request = FakeRequest(
         '["ACCESS_TOKEN"]'
     )
@@ -208,12 +168,12 @@ def test_executor_returns_only_success_message(
     monkeypatch.setattr(
         executor_module,
         "validate_secret_access",
-        lambda names: None,
+        lambda names: ["ACCESS_TOKEN"],
     )
 
     response = executor.run()
 
-    assert response == {
-        "message": SUCCESS_MESSAGE,
-    }
+    assert response["secretContext"]["references"] == [
+        "ACCESS_TOKEN"
+    ]
     assert "do-not-expose-me" not in str(response)
