@@ -111,14 +111,14 @@ class VariablesStoringSecrets(Config):
 
 
 class SecretsOutput(Output):
-    """Success metadata and an encrypted payload for downstream use."""
+    """Success status without exposing secret values."""
 
     name: Literal["secrets"] = "secrets"
     value: Dict[str, str]
     type: Literal["object"] = "object"
 
     class Config:
-        title = "Secure Secrets"
+        title = "Secret Access Status"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):

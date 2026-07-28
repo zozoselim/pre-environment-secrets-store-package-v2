@@ -1,4 +1,3 @@
-import base64
 import importlib
 import os
 import sys
@@ -10,15 +9,10 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
-TEST_KEY = base64.urlsafe_b64encode(
-    b"0" * 32
-).decode("utf-8")
+SUCCESS_MESSAGE = "Requested secret values were accessed successfully."
 
 
-def _register_package(
-    name: str,
-    path: Path,
-) -> None:
+def _register_package(name: str, path: Path) -> None:
     module = types.ModuleType(name)
     module.__path__ = [str(path)]
     sys.modules[name] = module
@@ -72,11 +66,7 @@ def _prepare_imports() -> None:
     )
 
     class FakeComponent:
-        def __init__(
-            self,
-            request=None,
-            bootstrap=None,
-        ):
+        def __init__(self, request=None, bootstrap=None):
             self.request = request
             self.bootstrap_data = bootstrap
 
@@ -104,7 +94,9 @@ def _prepare_imports() -> None:
 
     def fake_build_response(context):
         return {
-            "secrets": context.secure_result,
+            "secrets": {
+                "message": SUCCESS_MESSAGE,
+            }
         }
 
     response_module.build_response = fake_build_response
@@ -115,19 +107,13 @@ def _prepare_imports() -> None:
 
 _prepare_imports()
 
-
 environment_utils = importlib.import_module(
     "novavision.package.utils.environment"
-)
-security_utils = importlib.import_module(
-    "novavision.package.utils.security"
 )
 executor_module = importlib.import_module(
     "novavision.package.executors.EnvironmentSecretsStore"
 )
-EnvironmentSecretsStore = (
-    executor_module.EnvironmentSecretsStore
-)
+EnvironmentSecretsStore = executor_module.EnvironmentSecretsStore
 
 
 class FakeRequest:
@@ -184,94 +170,53 @@ def test_parse_variable_names_from_json_string():
         '["1INVALID_NAME"]',
     ],
 )
-def test_rejects_invalid_variable_names(
-    invalid_value,
-):
+def test_rejects_invalid_variable_names(invalid_value):
     with pytest.raises(ValueError):
         environment_utils.parse_variable_names(
             invalid_value
         )
 
 
-def test_encrypt_and_decrypt_round_trip():
-    source = {
-        "access_token": "secret-value",
-        "database_password": "another-secret",
-    }
-
-    encrypted = security_utils.encrypt_secrets(
-        secrets=source,
-        encryption_key=TEST_KEY,
-    )
-
-    assert "secret-value" not in encrypted
-    assert "another-secret" not in encrypted
-
-    assert security_utils.decrypt_secrets(
-        encrypted_payload=encrypted,
-        encryption_key=TEST_KEY,
-    ) == source
-
-
-def test_resolve_secure_secrets_never_returns_plaintext(
-    monkeypatch,
-):
+def test_read_secrets_uses_environment_sdk(monkeypatch):
     monkeypatch.setenv(
         "ACCESS_TOKEN",
-        "do-not-expose-me",
-    )
-    monkeypatch.setenv(
-        security_utils.ENCRYPTION_KEY_VARIABLE,
-        TEST_KEY,
+        "private-value",
     )
 
-    result = security_utils.resolve_secure_secrets(
+    assert environment_utils.read_secrets(
         ["ACCESS_TOKEN"]
-    )
-
-    assert result["message"] == (
-        security_utils.SUCCESS_MESSAGE
-    )
-    assert result["encryption"] == "fernet"
-    assert "do-not-expose-me" not in str(result)
-
-    decrypted = security_utils.decrypt_secrets(
-        encrypted_payload=result["encrypted_payload"],
-        encryption_key=TEST_KEY,
-    )
-
-    assert decrypted == {
-        "access_token": "do-not-expose-me",
+    ) == {
+        "access_token": "private-value",
     }
 
 
-def test_missing_encryption_key_is_rejected(
-    monkeypatch,
-):
-    monkeypatch.setenv(
-        "ACCESS_TOKEN",
-        "do-not-expose-me",
-    )
+def test_missing_secret_is_rejected(monkeypatch):
     monkeypatch.delenv(
-        security_utils.ENCRYPTION_KEY_VARIABLE,
+        "MISSING_SECRET",
         raising=False,
     )
 
     with pytest.raises(RuntimeError) as error:
-        security_utils.resolve_secure_secrets(
-            ["ACCESS_TOKEN"]
+        environment_utils.read_secrets(
+            ["MISSING_SECRET"]
         )
 
-    assert (
-        security_utils.ENCRYPTION_KEY_VARIABLE
-        in str(error.value)
+    assert "MISSING_SECRET" in str(error.value)
+
+
+def test_empty_secret_is_rejected(monkeypatch):
+    monkeypatch.setenv(
+        "EMPTY_SECRET",
+        "   ",
     )
-    assert "do-not-expose-me" not in str(error.value)
+
+    with pytest.raises(RuntimeError):
+        environment_utils.read_secrets(
+            ["EMPTY_SECRET"]
+        )
 
 
-def test_executor_run_returns_encrypted_bundle(
-    monkeypatch,
-):
+def test_executor_returns_only_success_message(monkeypatch):
     request = FakeRequest(
         '["ACCESS_TOKEN"]'
     )
@@ -280,27 +225,28 @@ def test_executor_run_returns_encrypted_bundle(
         bootstrap={},
     )
 
-    encrypted_result = {
-        "message": security_utils.SUCCESS_MESSAGE,
-        "encrypted_payload": "encrypted-token",
-        "encryption": "fernet",
-    }
-
     monkeypatch.setattr(
         executor_module,
-        "resolve_secure_secrets",
-        lambda variable_names: encrypted_result,
+        "read_secrets",
+        lambda variable_names: {
+            "access_token": "do-not-expose-me",
+        },
     )
 
     response = executor.run()
 
-    assert executor.secure_result == encrypted_result
-    assert response == {
-        "secrets": encrypted_result,
+    assert executor.secrets == {
+        "access_token": "do-not-expose-me",
     }
+    assert response == {
+        "secrets": {
+            "message": SUCCESS_MESSAGE,
+        }
+    }
+    assert "do-not-expose-me" not in str(response)
 
 
-def test_executor_run_does_not_expose_plaintext_in_logs(
+def test_executor_does_not_print_plaintext(
     monkeypatch,
     capsys,
 ):
@@ -314,16 +260,14 @@ def test_executor_run_does_not_expose_plaintext_in_logs(
 
     monkeypatch.setattr(
         executor_module,
-        "resolve_secure_secrets",
+        "read_secrets",
         lambda variable_names: {
-            "message": security_utils.SUCCESS_MESSAGE,
-            "encrypted_payload": "encrypted-token",
-            "encryption": "fernet",
+            "access_token": "do-not-expose-me",
         },
     )
 
     executor.run()
     captured = capsys.readouterr()
 
-    assert "ACCESS_TOKEN" not in captured.out
-    assert "ACCESS_TOKEN" not in captured.err
+    assert "do-not-expose-me" not in captured.out
+    assert "do-not-expose-me" not in captured.err

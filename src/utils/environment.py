@@ -70,11 +70,11 @@ def parse_variable_names(
 
 
 def read_secrets(
-    environment: Environment,
     variable_names: Sequence[str],
 ) -> Dict[str, str]:
     """Read requested values through NovaVision's Environment SDK."""
 
+    environment = Environment()
     secrets: Dict[str, str] = {}
     missing_variables: List[str] = []
 
@@ -83,7 +83,7 @@ def read_secrets(
             variable_name
         )
 
-        if value is None:
+        if value is None or not str(value).strip():
             missing_variables.append(variable_name)
             continue
 
@@ -91,27 +91,8 @@ def read_secrets(
 
     if missing_variables:
         raise RuntimeError(
-            "Required environment variables were not found: "
+            "Required environment variables were not found or were empty: "
             + ", ".join(missing_variables)
         )
 
     return secrets
-
-
-def read_required_value(
-    environment: Environment,
-    variable_name: str,
-) -> str:
-    """Read one required environment value without logging its contents."""
-
-    value = environment.get_environment_variable(
-        variable_name
-    )
-
-    if value is None:
-        raise RuntimeError(
-            "Required environment variable was not found: "
-            + variable_name
-        )
-
-    return value

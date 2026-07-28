@@ -21,9 +21,8 @@ from sdks.novavision.src.base.component import Component
 if __package__:
     # Clean install veya Python paketi olarak import edildiğinde.
     from ..models.PackageModel import PackageModel
-    from ..utils.environment import parse_variable_names
+    from ..utils.environment import parse_variable_names, read_secrets
     from ..utils.response import build_response
-    from ..utils.security import resolve_secure_secrets
 else:
     # NovaVision executor dosyasını doğrudan çalıştırdığında.
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
@@ -31,17 +30,15 @@ else:
     )
     from components.EnvironmentSecretsStore.src.utils.environment import (
         parse_variable_names,
+        read_secrets,
     )
     from components.EnvironmentSecretsStore.src.utils.response import (
         build_response,
     )
-    from components.EnvironmentSecretsStore.src.utils.security import (
-        resolve_secure_secrets,
-    )
 
 
 class EnvironmentSecretsStore(Component):
-    """Resolve requested secrets and expose only an encrypted bundle."""
+    """Resolve requested secrets without exposing their values."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
@@ -56,16 +53,16 @@ class EnvironmentSecretsStore(Component):
             )
         )
 
-        self.secure_result: Dict[str, str] = {}
+        self.secrets: Dict[str, str] = {}
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
         return {}
 
     def run(self):
-        """Resolve and encrypt secrets, then build the NovaVision response."""
+        """Resolve secrets and return only a success message."""
 
-        self.secure_result = resolve_secure_secrets(
+        self.secrets = read_secrets(
             self.variable_names
         )
 
