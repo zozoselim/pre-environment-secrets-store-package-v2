@@ -10,7 +10,7 @@ if __package__:
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        SecretReferencesOutput,
+        StatusOutput,
     )
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
@@ -20,16 +20,16 @@ else:
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        SecretReferencesOutput,
+        StatusOutput,
     )
 
 
 def build_response(context):
-    """Return one safe output containing only secret references."""
+    """Return one non-secret string status output."""
 
     package_outputs = PackageOutputs(
-        secretReferences=SecretReferencesOutput(
-            value=context.secret_references,
+        message=StatusOutput(
+            value=context.message,
         ),
     )
 

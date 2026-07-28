@@ -2,7 +2,6 @@
 
 import os
 import sys
-from typing import List
 
 
 sys.path.append(
@@ -37,7 +36,7 @@ else:
 
 
 class EnvironmentSecretsStore(Component):
-    """Validate secrets and expose only safe references."""
+    """Verify access to configured secrets without exposing values."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
@@ -52,21 +51,21 @@ class EnvironmentSecretsStore(Component):
             )
         )
 
-        self.secret_references: List[str] = []
+        self.message = ""
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
         return {}
 
     def run(self):
-        """
-        Validate access and return environment-variable references.
+        """Verify secret access and return a safe status message."""
 
-        The actual secret values remain inside the runtime environment.
-        """
-
-        self.secret_references = validate_secret_access(
+        validate_secret_access(
             self.variable_names
+        )
+
+        self.message = (
+            "Requested secret values were accessed successfully."
         )
 
         return build_response(

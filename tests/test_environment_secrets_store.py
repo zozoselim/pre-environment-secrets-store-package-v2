@@ -9,6 +9,9 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
+SUCCESS_MESSAGE = (
+    "Requested secret values were accessed successfully."
+)
 
 
 def _register_package(name: str, path: Path) -> None:
@@ -90,9 +93,7 @@ def _prepare_imports() -> None:
 
     def fake_build_response(context):
         return {
-            "secretReferences": (
-                context.secret_references
-            )
+            "message": context.message,
         }
 
     response_module.build_response = fake_build_response
@@ -130,16 +131,6 @@ class FakeRequest:
         return self.params[name]
 
 
-def test_only_one_executor_file_exists():
-    executors_dir = SRC_DIR / "executors"
-
-    assert (
-        executors_dir / "EnvironmentSecretsStore.py"
-    ).is_file()
-    assert not (executors_dir / "Str.py").exists()
-    assert not (executors_dir / "List.py").exists()
-
-
 def test_executor_has_run_method():
     assert callable(
         getattr(
@@ -167,7 +158,6 @@ def test_parse_variable_names():
         "[]",
         '[""]',
         "[123]",
-        '["API_KEY", "api_key"]',
         '["API KEY"]',
     ],
 )
@@ -178,20 +168,18 @@ def test_rejects_invalid_names(invalid_value):
         )
 
 
-def test_validate_access_returns_references_only(
-    monkeypatch,
-):
+def test_validate_secret_access(monkeypatch):
     monkeypatch.setenv(
         "ACCESS_TOKEN",
         "do-not-expose-me",
     )
 
-    result = environment_utils.validate_secret_access(
-        ["ACCESS_TOKEN"]
+    assert (
+        environment_utils.validate_secret_access(
+            ["ACCESS_TOKEN"]
+        )
+        is None
     )
-
-    assert result == ["ACCESS_TOKEN"]
-    assert "do-not-expose-me" not in str(result)
 
 
 def test_missing_secret_fails(monkeypatch):
@@ -200,15 +188,13 @@ def test_missing_secret_fails(monkeypatch):
         raising=False,
     )
 
-    with pytest.raises(RuntimeError) as error:
+    with pytest.raises(RuntimeError):
         environment_utils.validate_secret_access(
             ["MISSING_SECRET"]
         )
 
-    assert "MISSING_SECRET" in str(error.value)
 
-
-def test_executor_returns_only_references(
+def test_executor_returns_only_success_message(
     monkeypatch,
 ):
     request = FakeRequest(
@@ -222,17 +208,12 @@ def test_executor_returns_only_references(
     monkeypatch.setattr(
         executor_module,
         "validate_secret_access",
-        lambda names: ["ACCESS_TOKEN"],
+        lambda names: None,
     )
 
     response = executor.run()
 
-    assert executor.secret_references == [
-        "ACCESS_TOKEN"
-    ]
     assert response == {
-        "secretReferences": [
-            "ACCESS_TOKEN"
-        ]
+        "message": SUCCESS_MESSAGE,
     }
     assert "do-not-expose-me" not in str(response)

@@ -1,6 +1,6 @@
 import json
 import re
-from typing import List, Literal, Union
+from typing import Literal, Union
 
 from pydantic import Field, validator
 
@@ -28,7 +28,7 @@ class EmptyInputs(Inputs):
 
 
 class VariablesStoringSecrets(Config):
-    """JSON list of environment-variable names to validate."""
+    """JSON list of environment-variable names to verify."""
 
     name: Literal[
         "variables_storing_secrets"
@@ -106,23 +106,20 @@ class VariablesStoringSecrets(Config):
         json_schema_extra = {
             "shortDescription": (
                 "JSON list of environment-variable names. "
-                "Values are validated at runtime and never "
-                "returned."
+                "Values are verified at runtime and never returned."
             )
         }
 
 
-class SecretReferencesOutput(Output):
-    """Safe names used by downstream components to resolve secrets."""
+class StatusOutput(Output):
+    """Safe status message shown to users and downstream blocks."""
 
-    name: Literal[
-        "secretReferences"
-    ] = "secretReferences"
-    value: List[str]
-    type: Literal["object"] = "object"
+    name: Literal["message"] = "message"
+    value: str
+    type: Literal["string"] = "string"
 
     class Config:
-        title = "Secret References"
+        title = "Secret Access Status"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):
@@ -130,7 +127,7 @@ class EnvironmentSecretsStoreConfigs(Configs):
 
 
 class PackageOutputs(Outputs):
-    secretReferences: SecretReferencesOutput
+    message: StatusOutput
 
 
 class PackageRequest(Request):
