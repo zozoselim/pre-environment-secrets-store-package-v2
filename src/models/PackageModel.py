@@ -16,17 +16,19 @@ from sdks.novavision.src.base.model import (
 )
 
 
-_ENV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_ENV_NAME_PATTERN = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*"
+)
 
 
 class EmptyInputs(Inputs):
-    """Environment Secrets Store does not require workflow input."""
+    """Environment Secrets Store requires no workflow input."""
 
     pass
 
 
 class VariablesStoringSecrets(Config):
-    """JSON list containing names of environment variables to retrieve."""
+    """JSON list of environment-variable names to validate."""
 
     name: Literal[
         "variables_storing_secrets"
@@ -41,61 +43,60 @@ class VariablesStoringSecrets(Config):
     field: Literal["textInput"] = "textInput"
 
     placeHolder: Literal[
-        '["OPENAI_API_KEY", "DATABASE_PASSWORD"]'
-    ] = '["OPENAI_API_KEY", "DATABASE_PASSWORD"]'
+        '["ACCESS_TOKEN", "DATABASE_PASSWORD"]'
+    ] = '["ACCESS_TOKEN", "DATABASE_PASSWORD"]'
 
     @validator("value")
-    def validate_variable_names(cls, value: str) -> str:
-        """Validate and normalize the JSON list stored by the UI text field."""
-
+    def validate_variable_names(
+        cls,
+        value: str,
+    ) -> str:
         try:
             variable_names = json.loads(value)
         except json.JSONDecodeError as error:
             raise ValueError(
-                "Value must be a valid JSON list of environment variable names."
+                "Value must be a valid JSON list of "
+                "environment variable names."
             ) from error
 
-        if not isinstance(variable_names, list):
-            raise ValueError("Value must be a JSON list.")
-
-        if not variable_names:
+        if (
+            not isinstance(variable_names, list)
+            or not variable_names
+        ):
             raise ValueError(
-                "At least one environment variable name is required."
+                "At least one environment variable "
+                "name is required."
             )
 
         cleaned_names = []
         seen_names = set()
-        seen_output_names = set()
 
         for variable_name in variable_names:
             if not isinstance(variable_name, str):
                 raise ValueError(
-                    "Environment variable names must be strings."
+                    "Environment variable names must "
+                    "be strings."
                 )
 
             cleaned_name = variable_name.strip()
 
-            if not _ENV_NAME_PATTERN.fullmatch(cleaned_name):
+            if not _ENV_NAME_PATTERN.fullmatch(
+                cleaned_name
+            ):
                 raise ValueError(
                     "Invalid environment variable name: "
                     f"{cleaned_name!r}."
                 )
 
-            if cleaned_name in seen_names:
+            normalized_name = cleaned_name.lower()
+
+            if normalized_name in seen_names:
                 raise ValueError(
-                    "Duplicate environment variable name: "
-                    f"{cleaned_name}."
+                    "Environment variable names must "
+                    "be unique."
                 )
 
-            output_name = cleaned_name.lower()
-            if output_name in seen_output_names:
-                raise ValueError(
-                    "Environment variable names must remain unique after "
-                    f"lowercasing: {cleaned_name}."
-                )
-
-            seen_names.add(cleaned_name)
-            seen_output_names.add(output_name)
+            seen_names.add(normalized_name)
             cleaned_names.append(cleaned_name)
 
         return json.dumps(cleaned_names)
@@ -104,32 +105,24 @@ class VariablesStoringSecrets(Config):
         title = "Variables Storing Secrets"
         json_schema_extra = {
             "shortDescription": (
-                "JSON list of environment variable names. Values are "
-                "validated at runtime but are never returned."
+                "JSON list of environment-variable names. "
+                "Values are validated at runtime and never "
+                "returned."
             )
         }
 
 
 class SecretReferencesOutput(Output):
-    """Safe environment-variable names for downstream secret resolution."""
+    """Safe names used by downstream components to resolve secrets."""
 
-    name: Literal["secretReferences"] = "secretReferences"
+    name: Literal[
+        "secretReferences"
+    ] = "secretReferences"
     value: List[str]
     type: Literal["object"] = "object"
 
     class Config:
         title = "Secret References"
-
-
-class MessageOutput(Output):
-    """Human-readable status without secret values."""
-
-    name: Literal["message"] = "message"
-    value: str
-    type: Literal["string"] = "string"
-
-    class Config:
-        title = "Message"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):
@@ -138,11 +131,12 @@ class EnvironmentSecretsStoreConfigs(Configs):
 
 class PackageOutputs(Outputs):
     secretReferences: SecretReferencesOutput
-    message: MessageOutput
 
 
 class PackageRequest(Request):
-    inputs: EmptyInputs = Field(default_factory=EmptyInputs)
+    inputs: EmptyInputs = Field(
+        default_factory=EmptyInputs
+    )
     configs: EnvironmentSecretsStoreConfigs
 
     class Config:
@@ -178,7 +172,9 @@ class EnvironmentSecretsStoreExecutor(Config):
 
 
 class ConfigExecutor(Config):
-    name: Literal["ConfigExecutor"] = "ConfigExecutor"
+    name: Literal[
+        "ConfigExecutor"
+    ] = "ConfigExecutor"
     value: EnvironmentSecretsStoreExecutor
     type: Literal["executor"] = "executor"
     field: Literal[

@@ -37,7 +37,7 @@ else:
 
 
 class EnvironmentSecretsStore(Component):
-    """Validate secrets and expose only safe environment references."""
+    """Validate secrets and expose only safe references."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
@@ -59,7 +59,11 @@ class EnvironmentSecretsStore(Component):
         return {}
 
     def run(self):
-        """Validate secret access and build a reference-only response."""
+        """
+        Validate access and return environment-variable references.
+
+        The actual secret values remain inside the runtime environment.
+        """
 
         self.secret_references = validate_secret_access(
             self.variable_names

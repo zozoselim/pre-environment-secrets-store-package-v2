@@ -15,7 +15,7 @@ _ENV_NAME_PATTERN = re.compile(
 def parse_variable_names(
     raw_variable_names: Union[str, Sequence[str]],
 ) -> List[str]:
-    """Parse and validate configured environment variable names."""
+    """Parse and validate configured environment-variable names."""
 
     if isinstance(raw_variable_names, str):
         try:
@@ -72,18 +72,28 @@ def parse_variable_names(
 def validate_secret_access(
     variable_names: Sequence[str],
 ) -> List[str]:
-    """Verify secret access and return only safe environment references."""
+    """
+    Verify that each requested secret exists.
+
+    Only environment-variable names are returned. Secret values are
+    never returned, printed, or written to workflow outputs.
+    """
 
     environment = Environment()
     missing_variables: List[str] = []
     references: List[str] = []
 
     for variable_name in variable_names:
-        secret_value = environment.get_environment_variable(
-            variable_name
+        secret_value = (
+            environment.get_environment_variable(
+                variable_name
+            )
         )
 
-        if secret_value is None or not str(secret_value).strip():
+        if (
+            secret_value is None
+            or not str(secret_value).strip()
+        ):
             missing_variables.append(variable_name)
             continue
 
@@ -91,7 +101,8 @@ def validate_secret_access(
 
     if missing_variables:
         raise RuntimeError(
-            "Required environment variables were not found or were empty: "
+            "Required environment variables were not found "
+            "or were empty: "
             + ", ".join(missing_variables)
         )
 

@@ -1,4 +1,4 @@
-"""Response builder for the Environment Secrets Store component."""
+"""Response builder for Environment Secrets Store."""
 
 from sdks.novavision.src.helper.package import PackageHelper
 
@@ -6,7 +6,6 @@ if __package__:
     from ..models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
-        MessageOutput,
         PackageConfigs,
         PackageModel,
         PackageOutputs,
@@ -17,7 +16,6 @@ else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
-        MessageOutput,
         PackageConfigs,
         PackageModel,
         PackageOutputs,
@@ -26,21 +24,12 @@ else:
     )
 
 
-SUCCESS_MESSAGE = (
-    "Requested secret values were accessed successfully. "
-    "Only safe environment references were returned."
-)
-
-
 def build_response(context):
-    """Build a response containing references and a safe status message."""
+    """Return one safe output containing only secret references."""
 
     package_outputs = PackageOutputs(
         secretReferences=SecretReferencesOutput(
             value=context.secret_references,
-        ),
-        message=MessageOutput(
-            value=SUCCESS_MESSAGE,
         ),
     )
 

@@ -1,81 +1,61 @@
 # Environment Secrets Store
 
-Environment Secrets Store is a NovaVision workflow component that validates
-access to explicitly configured environment variables at runtime without
-returning their values.
+Environment Secrets Store validates that configured environment
+variables are available through NovaVision's `Environment` SDK.
 
-## Configuration
+## Final workflow design
 
-`variables_storing_secrets` accepts a JSON list:
+The component has one output:
+
+```text
+secretReferences
+```
+
+For this configuration:
 
 ```json
 ["ACCESS_TOKEN", "DATABASE_PASSWORD"]
 ```
 
-The component constructs NovaVision's `Environment` SDK and checks that every
-requested variable exists and is non-empty.
-
-## Outputs
-
-The component never returns the secret values. It exposes two safe outputs:
+the output is:
 
 ```json
-{
-  "secretReferences": [
-    "ACCESS_TOKEN",
-    "DATABASE_PASSWORD"
-  ],
-  "message": "Requested secret values were accessed successfully. Only safe environment references were returned."
-}
+["ACCESS_TOKEN", "DATABASE_PASSWORD"]
 ```
 
-`secretReferences` contains environment-variable names, not their values. A
-trusted downstream package receives these references and resolves the real
-values from its own NovaVision runtime environment:
+These are environment-variable names, not secret values.
 
-```python
-from sdks.novavision.src.base.environment import Environment
+A trusted downstream component receives the references and resolves the
+real values through the same NovaVision `Environment` SDK. It may use
+those values internally, but it must never print, log, or return them.
 
-environment = Environment()
-
-for secret_reference in secret_references:
-    secret_value = environment.get_environment_variable(
-        secret_reference
-    )
-
-    if secret_value is None or not str(secret_value).strip():
-        raise RuntimeError(
-            f"Secret could not be resolved: {secret_reference}"
-        )
-
-    # Use secret_value internally. Never print or return it.
+```text
+EnvironmentSecretsStore.secretReferences
+            ↓
+DownstreamComponent.secretList
+            ↓
+Environment().get_environment_variable(reference)
+            ↓
+Secret used internally
+            ↓
+Safe success message
 ```
 
-The downstream component should return only a safe status message.
+## Why references are used
 
-## Security properties
+NovaVision's inspected `Param` and `Output` models do not expose a native
+hidden/secret output type. Sending the real token through a regular
+string or object output may expose it in Preview. Passing only the
+environment-variable name avoids that problem.
 
-- Secret values are never included in this component's outputs.
-- Secret values are never printed or logged.
-- Workflow connections carry only environment-variable names.
-- The downstream component resolves values directly from its own environment.
-- Every downstream runtime/container must have access to the same required
-  environment variables.
+## Runtime environment
 
-This is secret-reference passing and masking, not encryption.
+The package does not hardcode `/opt/app/.env`. It creates NovaVision's
+`Environment()` object and lets the SDK load the runtime environment.
 
-## NovaVision environment loading
+## Security rules
 
-The package does not hardcode a dotenv path. It uses NovaVision's `Environment`
-class and lets the SDK load the runtime environment. In the verified OpenCV
-image, the SDK loads values from `/opt/app/.env`.
-
-## Clean install test
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -e ".[dev]"
-pytest -q
-```
+- Never return or log secret values.
+- Never commit `.env` files.
+- Connect `secretReferences` only to trusted components.
+- A downstream component must resolve references through the SDK.

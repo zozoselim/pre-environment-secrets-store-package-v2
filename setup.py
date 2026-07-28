@@ -7,8 +7,8 @@ setuptools.setup(
     author="NovaVision AI",
     author_email="info@novavision.ai",
     description=(
-        "Validates environment secrets and exposes safe references to "
-        "NovaVision workflow components without returning values."
+        "Securely retrieves explicitly requested environment variables and "
+        "passes safe references to NovaVision workflow components."
     ),
     url=(
         "https://github.com/zozoselim/"
@@ -16,7 +16,6 @@ setuptools.setup(
     ),
     license="MIT",
     install_requires=[
-        "python-dotenv>=1.0,<2.0",
         "requests>=2.31,<3.0",
     ],
     extras_require={
