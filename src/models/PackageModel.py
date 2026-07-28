@@ -111,14 +111,14 @@ class VariablesStoringSecrets(Config):
 
 
 class SecretsOutput(Output):
-    """Map of lowercase output names to secret values."""
+    """Success metadata and an encrypted payload for downstream use."""
 
     name: Literal["secrets"] = "secrets"
     value: Dict[str, str]
     type: Literal["object"] = "object"
 
     class Config:
-        title = "Secrets"
+        title = "Secure Secrets"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):

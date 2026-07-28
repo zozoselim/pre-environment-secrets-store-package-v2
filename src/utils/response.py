@@ -27,10 +27,10 @@ else:
 
 
 def build_response(context):
-    """Build a response containing requested secrets as an object output."""
+    """Build a response containing no plaintext secret values."""
 
     secrets_output = SecretsOutput(
-        value=context.secrets,
+        value=context.secure_result,
     )
 
     package_outputs = PackageOutputs(

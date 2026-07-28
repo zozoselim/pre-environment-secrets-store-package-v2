@@ -16,6 +16,7 @@ setuptools.setup(
     ),
     license="MIT",
     install_requires=[
+        "cryptography>=42",
         "python-dotenv>=1.0,<2.0",
         "requests>=2.31,<3.0",
     ],

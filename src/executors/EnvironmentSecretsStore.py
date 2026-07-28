@@ -21,11 +21,9 @@ from sdks.novavision.src.base.component import Component
 if __package__:
     # Clean install veya Python paketi olarak import edildiğinde.
     from ..models.PackageModel import PackageModel
-    from ..utils.environment import (
-        parse_variable_names,
-        read_secrets,
-    )
+    from ..utils.environment import parse_variable_names
     from ..utils.response import build_response
+    from ..utils.security import resolve_secure_secrets
 else:
     # NovaVision executor dosyasını doğrudan çalıştırdığında.
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
@@ -33,15 +31,17 @@ else:
     )
     from components.EnvironmentSecretsStore.src.utils.environment import (
         parse_variable_names,
-        read_secrets,
     )
     from components.EnvironmentSecretsStore.src.utils.response import (
         build_response,
     )
+    from components.EnvironmentSecretsStore.src.utils.security import (
+        resolve_secure_secrets,
+    )
 
 
 class EnvironmentSecretsStore(Component):
-    """Read requested secrets from the NovaVision runtime environment."""
+    """Resolve requested secrets and expose only an encrypted bundle."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
@@ -50,24 +50,22 @@ class EnvironmentSecretsStore(Component):
             **self.request.data
         )
 
-        raw_variable_names = self.request.get_param(
-            "variables_storing_secrets"
-        )
-
         self.variable_names = parse_variable_names(
-            raw_variable_names
+            self.request.get_param(
+                "variables_storing_secrets"
+            )
         )
 
-        self.secrets: Dict[str, str] = {}
+        self.secure_result: Dict[str, str] = {}
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
         return {}
 
     def run(self):
-        """Read secrets and return the NovaVision response."""
+        """Resolve and encrypt secrets, then build the NovaVision response."""
 
-        self.secrets = read_secrets(
+        self.secure_result = resolve_secure_secrets(
             self.variable_names
         )
 

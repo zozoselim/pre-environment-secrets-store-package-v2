@@ -1,3 +1,5 @@
+"""Environment parsing and retrieval helpers."""
+
 import json
 import re
 from typing import Dict, List, Sequence, Union
@@ -13,6 +15,8 @@ _ENV_NAME_PATTERN = re.compile(
 def parse_variable_names(
     raw_variable_names: Union[str, Sequence[str]],
 ) -> List[str]:
+    """Parse and validate configured environment variable names."""
+
     if isinstance(raw_variable_names, str):
         try:
             variable_names = json.loads(
@@ -35,7 +39,7 @@ def parse_variable_names(
             "At least one environment variable is required."
         )
 
-    cleaned_names = []
+    cleaned_names: List[str] = []
     seen_names = set()
 
     for variable_name in variable_names:
@@ -48,7 +52,7 @@ def parse_variable_names(
 
         if not _ENV_NAME_PATTERN.fullmatch(cleaned_name):
             raise ValueError(
-                f"Invalid environment variable name: "
+                "Invalid environment variable name: "
                 f"{cleaned_name!r}."
             )
 
@@ -66,12 +70,10 @@ def parse_variable_names(
 
 
 def read_secrets(
+    environment: Environment,
     variable_names: Sequence[str],
 ) -> Dict[str, str]:
-    """Read secrets through NovaVision's Environment SDK."""
-
-    # Environment constructor loads NovaVision runtime .env files.
-    environment = Environment()
+    """Read requested values through NovaVision's Environment SDK."""
 
     secrets: Dict[str, str] = {}
     missing_variables: List[str] = []
@@ -94,3 +96,22 @@ def read_secrets(
         )
 
     return secrets
+
+
+def read_required_value(
+    environment: Environment,
+    variable_name: str,
+) -> str:
+    """Read one required environment value without logging its contents."""
+
+    value = environment.get_environment_variable(
+        variable_name
+    )
+
+    if value is None:
+        raise RuntimeError(
+            "Required environment variable was not found: "
+            + variable_name
+        )
+
+    return value
