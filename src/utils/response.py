@@ -5,40 +5,33 @@ from sdks.novavision.src.helper.package import PackageHelper
 if __package__:
     from ..models.PackageModel import (
         ConfigExecutor,
-        EncryptedSecretsOutput,
         EnvironmentSecretsStoreExecutor,
-        MessageOutput,
         PackageConfigs,
         PackageModel,
         PackageOutputs,
         PackageResponse,
+        SecretReferencesOutput,
     )
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         ConfigExecutor,
-        EncryptedSecretsOutput,
         EnvironmentSecretsStoreExecutor,
-        MessageOutput,
         PackageConfigs,
         PackageModel,
         PackageOutputs,
         PackageResponse,
+        SecretReferencesOutput,
     )
 
 
 def build_response(context):
-    """Return ciphertext and a plaintext-free success message."""
-
     outputs = PackageOutputs(
-        encryptedSecrets=EncryptedSecretsOutput(
-            value=context.encrypted_secrets
-        ),
-        message=MessageOutput(value=context.message),
+        secretReferences=SecretReferencesOutput(
+            value=context.secret_references
+        )
     )
     response = PackageResponse(outputs=outputs)
-    selected_executor = EnvironmentSecretsStoreExecutor(
-        value=response
-    )
+    selected_executor = EnvironmentSecretsStoreExecutor(value=response)
     package_configs = PackageConfigs(
         executor=ConfigExecutor(value=selected_executor)
     )
