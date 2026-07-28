@@ -1,19 +1,34 @@
-# Environment Secrets Store v0.4.0
+# Environment Secrets Store
 
-The component validates requested environment variables through
-NovaVision's `Environment` SDK and outputs only their names as a JSON
-string.
+Environment Secrets Store, NovaVision workflow içinde kullanılacak environment variable isimlerini alır, bu değişkenlerin runtime ortamında mevcut olup olmadığını kontrol eder ve gerçek secret değerlerini workflow çıktısına yazmadan yalnızca referanslarını downstream component'lere aktarır.
 
-Example configuration:
+## Kullanım
 
-```json
-["DOCKER_NETWORK"]
-```
-
-Output:
+Örnek giriş:
 
 ```json
 ["DOCKER_NETWORK"]
 ```
 
-The actual secret value never enters the workflow output.
+Üretilen çıktı:
+
+```json
+["DOCKER_NETWORK"]
+```
+
+Gerçek değer NovaVision runtime ortamında kalır ve output ekranında gösterilmez.
+
+## Akış
+
+```text
+Environment Secrets Store.secretReferences
+    → Secret Output Viewer.secretReferences
+```
+
+## Geliştirme
+
+```bash
+python -m pytest -q
+```
+
+Paket, secret değerlerini kaynak koda veya workflow tanımına gömmeden güvenli biçimde kullanılabilir hâle getirmek için geliştirilmiştir.
