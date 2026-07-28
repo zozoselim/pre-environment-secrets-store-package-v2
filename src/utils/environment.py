@@ -1,8 +1,8 @@
-"""Environment parsing and retrieval helpers."""
+"""Environment parsing and secret-reference validation helpers."""
 
 import json
 import re
-from typing import Dict, List, Sequence, Union
+from typing import List, Sequence, Union
 
 from sdks.novavision.src.base.environment import Environment
 
@@ -69,25 +69,25 @@ def parse_variable_names(
     return cleaned_names
 
 
-def read_secrets(
+def validate_secret_access(
     variable_names: Sequence[str],
-) -> Dict[str, str]:
-    """Read requested values through NovaVision's Environment SDK."""
+) -> List[str]:
+    """Verify secret access and return only safe environment references."""
 
     environment = Environment()
-    secrets: Dict[str, str] = {}
     missing_variables: List[str] = []
+    references: List[str] = []
 
     for variable_name in variable_names:
-        value = environment.get_environment_variable(
+        secret_value = environment.get_environment_variable(
             variable_name
         )
 
-        if value is None or not str(value).strip():
+        if secret_value is None or not str(secret_value).strip():
             missing_variables.append(variable_name)
             continue
 
-        secrets[variable_name.lower()] = value
+        references.append(variable_name)
 
     if missing_variables:
         raise RuntimeError(
@@ -95,4 +95,4 @@ def read_secrets(
             + ", ".join(missing_variables)
         )
 
-    return secrets
+    return references

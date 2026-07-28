@@ -3,42 +3,45 @@
 from sdks.novavision.src.helper.package import PackageHelper
 
 if __package__:
-    # Clean install veya package import sırasında.
     from ..models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
+        MessageOutput,
         PackageConfigs,
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        SecretsOutput,
+        SecretReferencesOutput,
     )
 else:
-    # NovaVision dosyayı doğrudan runtime içinde çalıştırdığında.
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         ConfigExecutor,
         EnvironmentSecretsStoreExecutor,
+        MessageOutput,
         PackageConfigs,
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        SecretsOutput,
+        SecretReferencesOutput,
     )
+
+
+SUCCESS_MESSAGE = (
+    "Requested secret values were accessed successfully. "
+    "Only safe environment references were returned."
+)
 
 
 def build_response(context):
-    """Build a response containing only a success message."""
-
-    secrets_output = SecretsOutput(
-        value={
-            "message": (
-                "Requested secret values were accessed successfully."
-            )
-        },
-    )
+    """Build a response containing references and a safe status message."""
 
     package_outputs = PackageOutputs(
-        secrets=secrets_output,
+        secretReferences=SecretReferencesOutput(
+            value=context.secret_references,
+        ),
+        message=MessageOutput(
+            value=SUCCESS_MESSAGE,
+        ),
     )
 
     package_response = PackageResponse(

@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Dict, Literal, Union
+from typing import List, Literal, Union
 
 from pydantic import Field, validator
 
@@ -104,21 +104,32 @@ class VariablesStoringSecrets(Config):
         title = "Variables Storing Secrets"
         json_schema_extra = {
             "shortDescription": (
-                "JSON list of environment variable names. Secret values are "
-                "read only at runtime."
+                "JSON list of environment variable names. Values are "
+                "validated at runtime but are never returned."
             )
         }
 
 
-class SecretsOutput(Output):
-    """Success status without exposing secret values."""
+class SecretReferencesOutput(Output):
+    """Safe environment-variable names for downstream secret resolution."""
 
-    name: Literal["secrets"] = "secrets"
-    value: Dict[str, str]
+    name: Literal["secretReferences"] = "secretReferences"
+    value: List[str]
     type: Literal["object"] = "object"
 
     class Config:
-        title = "Secret Access Status"
+        title = "Secret References"
+
+
+class MessageOutput(Output):
+    """Human-readable status without secret values."""
+
+    name: Literal["message"] = "message"
+    value: str
+    type: Literal["string"] = "string"
+
+    class Config:
+        title = "Message"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):
@@ -126,7 +137,8 @@ class EnvironmentSecretsStoreConfigs(Configs):
 
 
 class PackageOutputs(Outputs):
-    secrets: SecretsOutput
+    secretReferences: SecretReferencesOutput
+    message: MessageOutput
 
 
 class PackageRequest(Request):

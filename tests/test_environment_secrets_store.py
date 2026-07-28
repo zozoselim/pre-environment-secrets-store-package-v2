@@ -9,7 +9,10 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
-SUCCESS_MESSAGE = "Requested secret values were accessed successfully."
+SUCCESS_MESSAGE = (
+    "Requested secret values were accessed successfully. "
+    "Only safe environment references were returned."
+)
 
 
 def _register_package(name: str, path: Path) -> None:
@@ -94,9 +97,8 @@ def _prepare_imports() -> None:
 
     def fake_build_response(context):
         return {
-            "secrets": {
-                "message": SUCCESS_MESSAGE,
-            }
+            "secretReferences": context.secret_references,
+            "message": SUCCESS_MESSAGE,
         }
 
     response_module.build_response = fake_build_response
@@ -177,17 +179,19 @@ def test_rejects_invalid_variable_names(invalid_value):
         )
 
 
-def test_read_secrets_uses_environment_sdk(monkeypatch):
+def test_validate_secret_access_returns_only_references(
+    monkeypatch,
+):
     monkeypatch.setenv(
         "ACCESS_TOKEN",
         "private-value",
     )
 
-    assert environment_utils.read_secrets(
+    assert environment_utils.validate_secret_access(
         ["ACCESS_TOKEN"]
-    ) == {
-        "access_token": "private-value",
-    }
+    ) == [
+        "ACCESS_TOKEN",
+    ]
 
 
 def test_missing_secret_is_rejected(monkeypatch):
@@ -197,7 +201,7 @@ def test_missing_secret_is_rejected(monkeypatch):
     )
 
     with pytest.raises(RuntimeError) as error:
-        environment_utils.read_secrets(
+        environment_utils.validate_secret_access(
             ["MISSING_SECRET"]
         )
 
@@ -211,12 +215,14 @@ def test_empty_secret_is_rejected(monkeypatch):
     )
 
     with pytest.raises(RuntimeError):
-        environment_utils.read_secrets(
+        environment_utils.validate_secret_access(
             ["EMPTY_SECRET"]
         )
 
 
-def test_executor_returns_only_success_message(monkeypatch):
+def test_executor_returns_references_and_message_only(
+    monkeypatch,
+):
     request = FakeRequest(
         '["ACCESS_TOKEN"]'
     )
@@ -227,21 +233,22 @@ def test_executor_returns_only_success_message(monkeypatch):
 
     monkeypatch.setattr(
         executor_module,
-        "read_secrets",
-        lambda variable_names: {
-            "access_token": "do-not-expose-me",
-        },
+        "validate_secret_access",
+        lambda variable_names: [
+            "ACCESS_TOKEN",
+        ],
     )
 
     response = executor.run()
 
-    assert executor.secrets == {
-        "access_token": "do-not-expose-me",
-    }
+    assert executor.secret_references == [
+        "ACCESS_TOKEN",
+    ]
     assert response == {
-        "secrets": {
-            "message": SUCCESS_MESSAGE,
-        }
+        "secretReferences": [
+            "ACCESS_TOKEN",
+        ],
+        "message": SUCCESS_MESSAGE,
     }
     assert "do-not-expose-me" not in str(response)
 
@@ -258,12 +265,9 @@ def test_executor_does_not_print_plaintext(
         bootstrap={},
     )
 
-    monkeypatch.setattr(
-        executor_module,
-        "read_secrets",
-        lambda variable_names: {
-            "access_token": "do-not-expose-me",
-        },
+    monkeypatch.setenv(
+        "ACCESS_TOKEN",
+        "do-not-expose-me",
     )
 
     executor.run()

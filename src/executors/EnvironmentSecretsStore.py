@@ -2,11 +2,9 @@
 
 import os
 import sys
-from typing import Dict
+from typing import List
 
 
-# NovaVision executor dosyayı doğrudan çalıştırdığında
-# proje kökünün import edilebilmesini sağlar.
 sys.path.append(
     os.path.join(
         os.path.dirname(__file__),
@@ -19,18 +17,19 @@ from sdks.novavision.src.base.component import Component
 
 
 if __package__:
-    # Clean install veya Python paketi olarak import edildiğinde.
     from ..models.PackageModel import PackageModel
-    from ..utils.environment import parse_variable_names, read_secrets
+    from ..utils.environment import (
+        parse_variable_names,
+        validate_secret_access,
+    )
     from ..utils.response import build_response
 else:
-    # NovaVision executor dosyasını doğrudan çalıştırdığında.
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
         PackageModel,
     )
     from components.EnvironmentSecretsStore.src.utils.environment import (
         parse_variable_names,
-        read_secrets,
+        validate_secret_access,
     )
     from components.EnvironmentSecretsStore.src.utils.response import (
         build_response,
@@ -38,7 +37,7 @@ else:
 
 
 class EnvironmentSecretsStore(Component):
-    """Resolve requested secrets without exposing their values."""
+    """Validate secrets and expose only safe environment references."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
@@ -53,16 +52,16 @@ class EnvironmentSecretsStore(Component):
             )
         )
 
-        self.secrets: Dict[str, str] = {}
+        self.secret_references: List[str] = []
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
         return {}
 
     def run(self):
-        """Resolve secrets and return only a success message."""
+        """Validate secret access and build a reference-only response."""
 
-        self.secrets = read_secrets(
+        self.secret_references = validate_secret_access(
             self.variable_names
         )
 

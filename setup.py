@@ -7,8 +7,8 @@ setuptools.setup(
     author="NovaVision AI",
     author_email="info@novavision.ai",
     description=(
-        "Securely retrieves explicitly requested environment variables and "
-        "exposes them to NovaVision workflow components."
+        "Validates environment secrets and exposes safe references to "
+        "NovaVision workflow components without returning values."
     ),
     url=(
         "https://github.com/zozoselim/"
