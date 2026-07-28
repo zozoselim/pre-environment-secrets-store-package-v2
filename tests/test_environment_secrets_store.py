@@ -9,6 +9,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
+SUCCESS_MESSAGE = "Requested secret values were accessed successfully."
 
 
 def _register_package(name: str, path: Path) -> None:
@@ -48,6 +49,9 @@ def _prepare_imports() -> None:
     )
 
     class FakeEnvironment:
+        def __init__(self):
+            pass
+
         @staticmethod
         def get_environment_variable(variable):
             return os.getenv(variable)
@@ -90,7 +94,9 @@ def _prepare_imports() -> None:
 
     def fake_build_response(context):
         return {
-            "secretContext": context.secret_context,
+            "secrets": {
+                "message": SUCCESS_MESSAGE,
+            }
         }
 
     response_module.build_response = fake_build_response
@@ -107,9 +113,7 @@ environment_utils = importlib.import_module(
 executor_module = importlib.import_module(
     "novavision.package.executors.EnvironmentSecretsStore"
 )
-EnvironmentSecretsStore = (
-    executor_module.EnvironmentSecretsStore
-)
+EnvironmentSecretsStore = executor_module.EnvironmentSecretsStore
 
 
 class FakeRequest:
@@ -128,35 +132,91 @@ class FakeRequest:
         return self.params[name]
 
 
-def test_validate_access_returns_only_references(
-    monkeypatch,
-):
+def test_single_executor_file_only():
+    executors_dir = SRC_DIR / "executors"
+
+    assert (
+        executors_dir / "EnvironmentSecretsStore.py"
+    ).is_file()
+    assert not (executors_dir / "Str.py").exists()
+    assert not (executors_dir / "List.py").exists()
+
+
+def test_executor_contains_run_method():
+    assert callable(
+        getattr(EnvironmentSecretsStore, "run", None)
+    )
+
+
+def test_parse_variable_names_from_json_string():
+    assert environment_utils.parse_variable_names(
+        '["MY_SECRET_A", "MY_SECRET_B"]'
+    ) == [
+        "MY_SECRET_A",
+        "MY_SECRET_B",
+    ]
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        "not-json",
+        "{}",
+        "[]",
+        '[""]',
+        "[123]",
+        '["API_KEY", "api_key"]',
+        '["API KEY"]',
+        '["1INVALID_NAME"]',
+    ],
+)
+def test_rejects_invalid_variable_names(invalid_value):
+    with pytest.raises(ValueError):
+        environment_utils.parse_variable_names(
+            invalid_value
+        )
+
+
+def test_read_secrets_uses_environment_sdk(monkeypatch):
     monkeypatch.setenv(
         "ACCESS_TOKEN",
-        "do-not-expose-me",
+        "private-value",
     )
 
-    result = environment_utils.validate_secret_access(
+    assert environment_utils.read_secrets(
         ["ACCESS_TOKEN"]
-    )
+    ) == {
+        "access_token": "private-value",
+    }
 
-    assert result == ["ACCESS_TOKEN"]
-    assert "do-not-expose-me" not in str(result)
 
-
-def test_missing_secret_fails(monkeypatch):
+def test_missing_secret_is_rejected(monkeypatch):
     monkeypatch.delenv(
         "MISSING_SECRET",
         raising=False,
     )
 
-    with pytest.raises(RuntimeError):
-        environment_utils.validate_secret_access(
+    with pytest.raises(RuntimeError) as error:
+        environment_utils.read_secrets(
             ["MISSING_SECRET"]
         )
 
+    assert "MISSING_SECRET" in str(error.value)
 
-def test_executor_returns_safe_context(monkeypatch):
+
+def test_empty_secret_is_rejected(monkeypatch):
+    monkeypatch.setenv(
+        "EMPTY_SECRET",
+        "   ",
+    )
+
+    with pytest.raises(RuntimeError):
+        environment_utils.read_secrets(
+            ["EMPTY_SECRET"]
+        )
+
+
+def test_executor_returns_only_success_message(monkeypatch):
     request = FakeRequest(
         '["ACCESS_TOKEN"]'
     )
@@ -167,13 +227,47 @@ def test_executor_returns_safe_context(monkeypatch):
 
     monkeypatch.setattr(
         executor_module,
-        "validate_secret_access",
-        lambda names: ["ACCESS_TOKEN"],
+        "read_secrets",
+        lambda variable_names: {
+            "access_token": "do-not-expose-me",
+        },
     )
 
     response = executor.run()
 
-    assert response["secretContext"]["references"] == [
-        "ACCESS_TOKEN"
-    ]
+    assert executor.secrets == {
+        "access_token": "do-not-expose-me",
+    }
+    assert response == {
+        "secrets": {
+            "message": SUCCESS_MESSAGE,
+        }
+    }
     assert "do-not-expose-me" not in str(response)
+
+
+def test_executor_does_not_print_plaintext(
+    monkeypatch,
+    capsys,
+):
+    request = FakeRequest(
+        '["ACCESS_TOKEN"]'
+    )
+    executor = EnvironmentSecretsStore(
+        request=request,
+        bootstrap={},
+    )
+
+    monkeypatch.setattr(
+        executor_module,
+        "read_secrets",
+        lambda variable_names: {
+            "access_token": "do-not-expose-me",
+        },
+    )
+
+    executor.run()
+    captured = capsys.readouterr()
+
+    assert "do-not-expose-me" not in captured.out
+    assert "do-not-expose-me" not in captured.err

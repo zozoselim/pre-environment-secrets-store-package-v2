@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Dict, List, Literal, Union
+from typing import List, Literal, Union
 
 from pydantic import Field, validator
 
@@ -16,19 +16,17 @@ from sdks.novavision.src.base.model import (
 )
 
 
-_ENV_NAME_PATTERN = re.compile(
-    r"[A-Za-z_][A-Za-z0-9_]*"
-)
+_ENV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class EmptyInputs(Inputs):
-    """Environment Secrets Store requires no workflow input."""
+    """Environment Secrets Store does not require workflow input."""
 
     pass
 
 
 class VariablesStoringSecrets(Config):
-    """JSON list of environment-variable names to validate."""
+    """JSON list containing environment-variable names to validate."""
 
     name: Literal[
         "variables_storing_secrets"
@@ -47,10 +45,7 @@ class VariablesStoringSecrets(Config):
     ] = '["ACCESS_TOKEN", "DATABASE_PASSWORD"]'
 
     @validator("value")
-    def validate_variable_names(
-        cls,
-        value: str,
-    ) -> str:
+    def validate_variable_names(cls, value: str) -> str:
         try:
             variable_names = json.loads(value)
         except json.JSONDecodeError as error:
@@ -59,13 +54,9 @@ class VariablesStoringSecrets(Config):
                 "environment variable names."
             ) from error
 
-        if (
-            not isinstance(variable_names, list)
-            or not variable_names
-        ):
+        if not isinstance(variable_names, list) or not variable_names:
             raise ValueError(
-                "At least one environment variable "
-                "name is required."
+                "At least one environment variable name is required."
             )
 
         cleaned_names = []
@@ -74,15 +65,12 @@ class VariablesStoringSecrets(Config):
         for variable_name in variable_names:
             if not isinstance(variable_name, str):
                 raise ValueError(
-                    "Environment variable names must "
-                    "be strings."
+                    "Environment variable names must be strings."
                 )
 
             cleaned_name = variable_name.strip()
 
-            if not _ENV_NAME_PATTERN.fullmatch(
-                cleaned_name
-            ):
+            if not _ENV_NAME_PATTERN.fullmatch(cleaned_name):
                 raise ValueError(
                     "Invalid environment variable name: "
                     f"{cleaned_name!r}."
@@ -92,8 +80,7 @@ class VariablesStoringSecrets(Config):
 
             if normalized_name in seen_names:
                 raise ValueError(
-                    "Environment variable names must "
-                    "be unique."
+                    "Environment variable names must be unique."
                 )
 
             seen_names.add(normalized_name)
@@ -106,20 +93,23 @@ class VariablesStoringSecrets(Config):
         json_schema_extra = {
             "shortDescription": (
                 "JSON list of environment-variable names. "
-                "Values remain inside the runtime environment."
+                "Only safe references are exposed to downstream components."
             )
         }
 
 
-class SecretContextOutput(Output):
-    """Safe context used by trusted downstream components."""
+class SecretReferencesOutput(Output):
+    """Safe environment-variable names for trusted consumers."""
 
-    name: Literal["secretContext"] = "secretContext"
-    value: Dict[str, Union[str, List[str]]]
+    name: Literal[
+        "secretReferences"
+    ] = "secretReferences"
+
+    value: List[str]
     type: Literal["object"] = "object"
 
     class Config:
-        title = "Secret Context"
+        title = "Secret References"
 
 
 class EnvironmentSecretsStoreConfigs(Configs):
@@ -127,7 +117,7 @@ class EnvironmentSecretsStoreConfigs(Configs):
 
 
 class PackageOutputs(Outputs):
-    secretContext: SecretContextOutput
+    secretReferences: SecretReferencesOutput
 
 
 class PackageRequest(Request):
@@ -172,7 +162,9 @@ class ConfigExecutor(Config):
     name: Literal[
         "ConfigExecutor"
     ] = "ConfigExecutor"
+
     value: EnvironmentSecretsStoreExecutor
+
     type: Literal["executor"] = "executor"
     field: Literal[
         "dependentDropdownlist"
@@ -192,6 +184,7 @@ class PackageConfigs(Configs):
 class PackageModel(Package):
     configs: PackageConfigs
     type: Literal["component"] = "component"
+
     name: Literal[
         "EnvironmentSecretsStore"
     ] = "EnvironmentSecretsStore"

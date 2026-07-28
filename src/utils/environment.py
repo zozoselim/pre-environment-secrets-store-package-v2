@@ -75,8 +75,8 @@ def validate_secret_access(
     """
     Verify that all requested secrets exist.
 
-    Only their environment-variable names are returned. Secret values
-    are never returned, printed, logged, or written to workflow output.
+    Only environment-variable names are returned. Values are never added
+    to workflow output.
     """
 
     environment = Environment()
@@ -84,16 +84,11 @@ def validate_secret_access(
     references: List[str] = []
 
     for variable_name in variable_names:
-        secret_value = (
-            environment.get_environment_variable(
-                variable_name
-            )
+        value = environment.get_environment_variable(
+            variable_name
         )
 
-        if (
-            secret_value is None
-            or not str(secret_value).strip()
-        ):
+        if value is None or not str(value).strip():
             missing_variables.append(variable_name)
             continue
 

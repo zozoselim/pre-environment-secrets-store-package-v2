@@ -1,30 +1,20 @@
 # Environment Secrets Store
 
-The component validates configured environment variables through
-NovaVision's `Environment` SDK.
+The component validates configured environment variables through NovaVision's
+`Environment` SDK and exposes only their names as a safe object/list output.
 
-It returns one safe object output:
+Example input:
 
 ```json
-{
-  "message": "Requested secret values are available to trusted workflow components.",
-  "references": ["ACCESS_TOKEN", "DATABASE_PASSWORD"]
-}
+["DOCKER_NETWORK", "ACCESS_TOKEN"]
 ```
 
-The object contains only environment-variable names. It never contains
-the corresponding secret values.
+Output:
 
-Connect:
-
-```text
-EnvironmentSecretsStore.secretContext
-    -> SecretOutputViewer.secretContext
+```json
+["DOCKER_NETWORK", "ACCESS_TOKEN"]
 ```
 
-The trusted downstream component resolves the real values through the
-same NovaVision `Environment` SDK, uses them internally, and returns only
-a success message.
-
-Important: if the downstream component runs in another container, the
-same environment variables must also be injected into that container.
+Secret values are not written to workflow output. Trusted downstream components
+receive the references and resolve the actual values from the same NovaVision
+runtime environment.

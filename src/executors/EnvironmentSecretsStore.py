@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import Dict, List, Union
+from typing import List
 
 
 sys.path.append(
@@ -37,7 +37,7 @@ else:
 
 
 class EnvironmentSecretsStore(Component):
-    """Validate secrets and expose a safe downstream context."""
+    """Validate requested secrets and expose safe references."""
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
@@ -52,29 +52,16 @@ class EnvironmentSecretsStore(Component):
             )
         )
 
-        self.secret_context: Dict[
-            str,
-            Union[str, List[str]],
-        ] = {}
+        self.secret_references: List[str] = []
 
     @staticmethod
     def bootstrap(config: dict = None) -> dict:
         return {}
 
     def run(self):
-        """Validate secret access and return only safe metadata."""
-
-        references = validate_secret_access(
+        self.secret_references = validate_secret_access(
             self.variable_names
         )
-
-        self.secret_context = {
-            "message": (
-                "Requested secret values are available "
-                "to trusted workflow components."
-            ),
-            "references": references,
-        }
 
         return build_response(
             context=self

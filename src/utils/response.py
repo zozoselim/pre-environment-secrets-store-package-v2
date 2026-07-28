@@ -10,7 +10,7 @@ if __package__:
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        SecretContextOutput,
+        SecretReferencesOutput,
     )
 else:
     from components.EnvironmentSecretsStore.src.models.PackageModel import (
@@ -20,16 +20,16 @@ else:
         PackageModel,
         PackageOutputs,
         PackageResponse,
-        SecretContextOutput,
+        SecretReferencesOutput,
     )
 
 
 def build_response(context):
-    """Return one object containing only safe metadata."""
+    """Return only safe secret references."""
 
     package_outputs = PackageOutputs(
-        secretContext=SecretContextOutput(
-            value=context.secret_context,
+        secretReferences=SecretReferencesOutput(
+            value=context.secret_references,
         ),
     )
 
@@ -41,12 +41,10 @@ def build_response(context):
         value=package_response,
     )
 
-    executor = ConfigExecutor(
-        value=component_executor,
-    )
-
     package_configs = PackageConfigs(
-        executor=executor,
+        executor=ConfigExecutor(
+            value=component_executor,
+        ),
     )
 
     package_helper = PackageHelper(

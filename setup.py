@@ -3,12 +3,12 @@ import setuptools
 
 setuptools.setup(
     name="environment-secrets-store",
-    version="0.1.0",
+    version="0.2.0",
     author="NovaVision AI",
     author_email="info@novavision.ai",
     description=(
         "Securely retrieves explicitly requested environment variables and "
-        "provides a safe secret context to trusted workflow components."
+        "exposes them to NovaVision workflow components."
     ),
     url=(
         "https://github.com/zozoselim/"
@@ -16,6 +16,7 @@ setuptools.setup(
     ),
     license="MIT",
     install_requires=[
+        "python-dotenv>=1.0,<2.0",
         "requests>=2.31,<3.0",
     ],
     extras_require={
