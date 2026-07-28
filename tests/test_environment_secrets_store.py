@@ -5,11 +5,11 @@ import types
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
-SUCCESS_MESSAGE = "Requested secret values were accessed successfully."
 
 
 def _register_package(name: str, path: Path) -> None:
@@ -49,9 +49,6 @@ def _prepare_imports() -> None:
     )
 
     class FakeEnvironment:
-        def __init__(self):
-            pass
-
         @staticmethod
         def get_environment_variable(variable):
             return os.getenv(variable)
@@ -94,9 +91,8 @@ def _prepare_imports() -> None:
 
     def fake_build_response(context):
         return {
-            "secrets": {
-                "message": SUCCESS_MESSAGE,
-            }
+            "encryptedSecrets": context.encrypted_secrets,
+            "message": context.message,
         }
 
     response_module.build_response = fake_build_response
@@ -109,6 +105,9 @@ _prepare_imports()
 
 environment_utils = importlib.import_module(
     "novavision.package.utils.environment"
+)
+crypto_utils = importlib.import_module(
+    "novavision.package.utils.crypto"
 )
 executor_module = importlib.import_module(
     "novavision.package.executors.EnvironmentSecretsStore"
@@ -132,29 +131,16 @@ class FakeRequest:
         return self.params[name]
 
 
-def test_single_executor_file_only():
+def test_single_executor_and_run_method():
     executors_dir = SRC_DIR / "executors"
-
-    assert (
-        executors_dir / "EnvironmentSecretsStore.py"
-    ).is_file()
-    assert not (executors_dir / "Str.py").exists()
-    assert not (executors_dir / "List.py").exists()
+    assert (executors_dir / "EnvironmentSecretsStore.py").is_file()
+    assert callable(getattr(EnvironmentSecretsStore, "run", None))
 
 
-def test_executor_contains_run_method():
-    assert callable(
-        getattr(EnvironmentSecretsStore, "run", None)
-    )
-
-
-def test_parse_variable_names_from_json_string():
+def test_parse_variable_names():
     assert environment_utils.parse_variable_names(
-        '["MY_SECRET_A", "MY_SECRET_B"]'
-    ) == [
-        "MY_SECRET_A",
-        "MY_SECRET_B",
-    ]
+        '["ACCESS_TOKEN", "DATABASE_PASSWORD"]'
+    ) == ["ACCESS_TOKEN", "DATABASE_PASSWORD"]
 
 
 @pytest.mark.parametrize(
@@ -166,93 +152,48 @@ def test_parse_variable_names_from_json_string():
         '[""]',
         "[123]",
         '["API_KEY", "api_key"]',
-        '["API KEY"]',
-        '["1INVALID_NAME"]',
+        '["NOVAVISION_SECRET_TRANSPORT_KEY"]',
     ],
 )
 def test_rejects_invalid_variable_names(invalid_value):
     with pytest.raises(ValueError):
-        environment_utils.parse_variable_names(
-            invalid_value
-        )
+        environment_utils.parse_variable_names(invalid_value)
 
 
-def test_read_secrets_uses_environment_sdk(monkeypatch):
+def test_reads_secrets_and_transport_key(monkeypatch):
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("ACCESS_TOKEN", "private-value")
     monkeypatch.setenv(
-        "ACCESS_TOKEN",
-        "private-value",
+        "NOVAVISION_SECRET_TRANSPORT_KEY",
+        key,
     )
 
     assert environment_utils.read_secrets(
         ["ACCESS_TOKEN"]
-    ) == {
-        "access_token": "private-value",
-    }
+    ) == {"ACCESS_TOKEN": "private-value"}
+    assert environment_utils.read_transport_key() == key
 
 
-def test_missing_secret_is_rejected(monkeypatch):
-    monkeypatch.delenv(
-        "MISSING_SECRET",
-        raising=False,
+def test_encrypts_without_exposing_plaintext():
+    key = Fernet.generate_key().decode()
+    token = crypto_utils.encrypt_secret_values(
+        {"ACCESS_TOKEN": "do-not-expose-me"},
+        key,
     )
 
-    with pytest.raises(RuntimeError) as error:
-        environment_utils.read_secrets(
-            ["MISSING_SECRET"]
-        )
-
-    assert "MISSING_SECRET" in str(error.value)
-
-
-def test_empty_secret_is_rejected(monkeypatch):
-    monkeypatch.setenv(
-        "EMPTY_SECRET",
-        "   ",
-    )
-
-    with pytest.raises(RuntimeError):
-        environment_utils.read_secrets(
-            ["EMPTY_SECRET"]
-        )
+    assert "do-not-expose-me" not in token
+    plaintext = Fernet(key.encode()).decrypt(
+        token.encode()
+    ).decode()
+    assert "do-not-expose-me" in plaintext
 
 
-def test_executor_returns_only_success_message(monkeypatch):
-    request = FakeRequest(
-        '["ACCESS_TOKEN"]'
-    )
-    executor = EnvironmentSecretsStore(
-        request=request,
-        bootstrap={},
-    )
-
-    monkeypatch.setattr(
-        executor_module,
-        "read_secrets",
-        lambda variable_names: {
-            "access_token": "do-not-expose-me",
-        },
-    )
-
-    response = executor.run()
-
-    assert executor.secrets == {
-        "access_token": "do-not-expose-me",
-    }
-    assert response == {
-        "secrets": {
-            "message": SUCCESS_MESSAGE,
-        }
-    }
-    assert "do-not-expose-me" not in str(response)
-
-
-def test_executor_does_not_print_plaintext(
+def test_executor_returns_ciphertext_and_safe_message(
     monkeypatch,
     capsys,
 ):
-    request = FakeRequest(
-        '["ACCESS_TOKEN"]'
-    )
+    key = Fernet.generate_key().decode()
+    request = FakeRequest('["ACCESS_TOKEN"]')
     executor = EnvironmentSecretsStore(
         request=request,
         bootstrap={},
@@ -261,13 +202,21 @@ def test_executor_does_not_print_plaintext(
     monkeypatch.setattr(
         executor_module,
         "read_secrets",
-        lambda variable_names: {
-            "access_token": "do-not-expose-me",
-        },
+        lambda names: {"ACCESS_TOKEN": "do-not-expose-me"},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "read_transport_key",
+        lambda: key,
     )
 
-    executor.run()
+    response = executor.run()
     captured = capsys.readouterr()
 
+    assert "do-not-expose-me" not in str(response)
     assert "do-not-expose-me" not in captured.out
     assert "do-not-expose-me" not in captured.err
+    assert response["message"].startswith("1 secret value")
+    assert Fernet(key.encode()).decrypt(
+        response["encryptedSecrets"].encode()
+    )

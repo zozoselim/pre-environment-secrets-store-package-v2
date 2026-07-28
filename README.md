@@ -1,20 +1,35 @@
 # Environment Secrets Store
 
-The component validates configured environment variables through NovaVision's
-`Environment` SDK and exposes only their names as a safe object/list output.
+The component reads explicitly requested values through NovaVision's
+`Environment` SDK, encrypts them with Fernet, and exposes the authenticated
+ciphertext to downstream workflow components.
 
-Example input:
+## Runtime environment
 
-```json
-["DOCKER_NETWORK", "ACCESS_TOKEN"]
+Both this package and the trusted consumer package must receive the same key:
+
+```text
+NOVAVISION_SECRET_TRANSPORT_KEY=<Fernet key>
 ```
 
-Output:
+Generate a key once:
 
-```json
-["DOCKER_NETWORK", "ACCESS_TOKEN"]
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Secret values are not written to workflow output. Trusted downstream components
-receive the references and resolve the actual values from the same NovaVision
-runtime environment.
+Example component configuration:
+
+```json
+["ACCESS_TOKEN", "DATABASE_PASSWORD"]
+```
+
+Outputs:
+
+- `encryptedSecrets`: encrypted string connected to the trusted consumer
+- `message`: safe status message
+
+Plaintext secret values are never returned, printed, or logged. NovaVision's
+current output model has no hidden/secret port type, so the ciphertext itself
+may appear in the output panel. It cannot be decrypted without the transport
+key.
