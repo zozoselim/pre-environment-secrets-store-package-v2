@@ -68,11 +68,16 @@ def parse_variable_names(
 def read_secrets(
     variable_names: Sequence[str],
 ) -> Dict[str, str]:
+    """Read secrets through NovaVision's Environment SDK."""
+
+    # Environment constructor loads NovaVision runtime .env files.
+    environment = Environment()
+
     secrets: Dict[str, str] = {}
     missing_variables: List[str] = []
 
     for variable_name in variable_names:
-        value = Environment.get_environment_variable(
+        value = environment.get_environment_variable(
             variable_name
         )
 
